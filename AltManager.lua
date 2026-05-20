@@ -9,20 +9,34 @@ local quixote = LibStub("LibQuixote-2.0")
 local me = GetUnitName("Player").." - "..GetRealmName()
 
 ------------------------------------------------------------------------
+-- Timezone-Safe Server Time Helper
+------------------------------------------------------------------------
+local function GetServerUnixTime()
+	-- Get local date components to extract current Year, Month, and Day
+	local dt = date("*t")
+	
+	-- Fetch the exact current server clock hour and minute
+	local sHour, sMin = GetGameTime()
+	
+	-- Construct a unified server time structure
+	dt.hour = sHour
+	dt.min = sMin
+	dt.sec = 0 -- Server clock doesn't expose seconds, 0 is safe and consistent
+	
+	return time(dt)
+end
+
+------------------------------------------------------------------------
 -- Profession cooldown definitions
--- Each entry defines one trackable cooldown.
--- cdSlot: "3day" or "7day" — which column it appears in
--- checkFn: called on the logged-in character to get expiry timestamp
---          returns nil if the character doesn't have this cooldown available
--- icon: texture path shown in the cell
 ------------------------------------------------------------------------
 local PROF_COOLDOWNS = {
 	-- 3-day cooldowns
 	{
 		key      = "SaltShaker",
 		cdSlot   = "3day",
-		profID   = 165,
+		profID   = 165,  -- Leatherworking
 		minSkill = 250,
+		levelReq = 50,
 		itemID   = 15846,
 		icon     = "Interface\\Icons\\inv_egg_05",
 		label    = "Salt Shaker",
@@ -30,9 +44,8 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(15846)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			elseif start == 0 and duration == 0 then
-				-- The game client hasn't queried the server for this item yet
 				return "UNCACHED"
 			end
 			return 0
@@ -41,8 +54,9 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "Transmute",
 		cdSlot   = "3day",
-		profID   = 171,
+		profID   = 171,  -- Alchemy
 		minSkill = 275,
+		levelReq = 50,
 		spellID  = 17187,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Transmute",
@@ -50,16 +64,17 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetSpellCooldown(17187)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			end
-			return 0 -- Spells are inherently cached by the client spellbook, 0 is safe here
+			return 0
 		end,
 	},
 	{
 		key      = "Mooncloth",
 		cdSlot   = "3day",
-		profID   = 197,
+		profID   = 197,  -- Tailoring
 		minSkill = 250,
+		levelReq = 50,
 		spellID  = 18560,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Mooncloth",
@@ -67,17 +82,18 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetSpellCooldown(18560)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			end
 			return 0
 		end,
 	},
-	-- 7-day cooldowns
+	-- 7-day cooldowns (Project Epoch Endgame Custom Items)
 	{
 		key      = "MasterworkSalt",
 		cdSlot   = "7day",
-		profID   = 165,
+		profID   = 165,  -- Leatherworking
 		minSkill = 300,
+		levelReq = 60,
 		itemID   = 60571,
 		icon     = "Interface\\Icons\\inv_misc_enggizmos_40",
 		label    = "Masterwork Salt",
@@ -85,7 +101,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60571)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			elseif start == 0 and duration == 0 then
 				return "UNCACHED"
 			end
@@ -95,8 +111,9 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "CrystalLattice",
 		cdSlot   = "7day",
-		profID   = 171,
+		profID   = 171,  -- Alchemy
 		minSkill = 300,
+		levelReq = 60,
 		itemID   = 60686,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Crystal Lattice",
@@ -104,7 +121,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60686)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			elseif start == 0 and duration == 0 then
 				return "UNCACHED"
 			end
@@ -114,8 +131,9 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "SignetMoonlit",
 		cdSlot   = "7day",
-		profID   = 197,
+		profID   = 197,  -- Tailoring
 		minSkill = 300,
+		levelReq = 60,
 		itemID   = 60603,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Signet",
@@ -123,7 +141,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60603)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining
+				return GetServerUnixTime() + remaining
 			elseif start == 0 and duration == 0 then
 				return "UNCACHED"
 			end
@@ -132,28 +150,22 @@ local PROF_COOLDOWNS = {
 	},
 }
 
-
--- Profession ID -> name mapping for display
 local PROF_NAMES = {
 	[165] = "Leatherworking",
 	[171] = "Alchemy",
 	[197] = "Tailoring",
 }
 
--- Database defaults
 local DBDefault = {
-	profile = {
-		minimap = { hide = false },
-	},
+	profile = { minimap = { hide = false } },
 	global = {
 		[me] = {
+			Level = 1,
 			LastReset = { reset = nil },
 			Sili  = { done = -1, handle = true },
 			BG    = { done = -1, handle = true },
 			Ony25 = { done = -1, handle = true },
 			MC25  = { done = -1, handle = true },
-			-- profCooldowns: { key -> expiry_timestamp }
-			-- professions:   { profID -> true }
 			profCooldowns = {},
 			professions   = {},
 		}
@@ -161,7 +173,6 @@ local DBDefault = {
 }
 
 local listChars = {}
-
 local tasks = {
 	Ony25 = { done = -1, tipe = "raid", isDaily = false, levelRequire = 60 },
 	MC25  = { done = -1, tipe = "raid", isDaily = false, levelRequire = 60 },
@@ -169,32 +180,22 @@ local tasks = {
 	Sili  = { done = -1, tipe = "job",  isDaily = true,  levelRequire = 54 },
 }
 
-local questsList = {
-	Sili = { 27390, 27391, 27392, 27393, 27394, 27395 },
-}
-
+local questsList = { Sili = { 27390, 27391, 27392, 27393, 27394, 27395 } }
 local BG_CURRENCY_ID   = 90533
 local bgCurrencySnapshot = 0
-
-local WORLD_BOSS_ZONES = {
-	["Blasted Lands"]   = true,
-	["Burning Steppes"] = true,
-}
-
+local WORLD_BOSS_ZONES = { ["Blasted Lands"] = true, ["Burning Steppes"] = true }
 local columnOrder = { "Ony25", "MC25", "Sili", "BG" }
 
 ------------------------------------------------------------------------
--- Helpers
+-- Helpers & Core Data Manager
 ------------------------------------------------------------------------
 local DAILY_RESET_HOUR = 8
 
--- Returns the correct character database profile.
--- If a charKey is provided, it returns that specific alt's data.
--- If no charKey is provided, it safely defaults to the currently logged-in character.
 local function GetCharProfile(charKey)
 	local target = charKey or me
 	if not AltManager.db.global[target] then
 		AltManager.db.global[target] = {
+			Level = 1,
 			profCooldowns = {},
 			professions   = {},
 		}
@@ -217,7 +218,7 @@ local function FormatTimeUntil(resetTimestamp, isDaily)
 		secs = SecondsUntilDailyReset()
 	else
 		if not resetTimestamp then return "?" end
-		secs = resetTimestamp - time()
+		secs = resetTimestamp - GetServerUnixTime()
 		if secs <= 0 then return L.ResetDue end
 	end
 	if secs <= 0 then return L.ResetDue end
@@ -236,12 +237,8 @@ end
 
 local function FormatCooldownExpiry(expiry)
 	if not expiry or expiry == 0 then return L.CDReady end
-	local secs = expiry - time()
-	
-	-- Safety Gate: If clock drifts cause minor negative values but 
-	-- the character file hasn't been refreshed yet, treat it as ready.
+	local secs = expiry - GetServerUnixTime()
 	if secs <= 0 then return L.CDReady end
-	
 	local h = math.floor(secs / 3600)
 	local m = math.floor((secs % 3600) / 60)
 	if h >= 24 then
@@ -257,28 +254,30 @@ end
 
 local function GetDoneForAlt(charKey, taskKey)
 	local db = GetCharProfile(charKey)
-	if not db[taskKey] then return -1 end
+	if not db or not db[taskKey] then return -1 end
 	return db[taskKey].done or -1
 end
 
 local function GetResetForAlt(charKey, taskKey)
-	local db = AltManager.db.global[charKey]
+	local db = GetCharProfile(charKey)
 	if not db or not db[taskKey] then return nil end
 	return db[taskKey].reset
 end
 
--- Returns list of PROF_COOLDOWNS entries for a given alt and cdSlot
--- Only returns entries where the alt has the required profession saved
 local function GetProfCooldownsForAlt(charKey, cdSlot)
-	local db = AltManager.db.global[charKey]
+	local db = GetCharProfile(charKey)
 	if not db or not db.professions then return {} end
 	local result = {}
+	
 	for _, cd in ipairs(PROF_COOLDOWNS) do
 		if cd.cdSlot == cdSlot then
-			-- Check if the character has the profession AND meets the minimum level requirement
 			local currentSkill = db.professions[cd.profID] or 0
+			local altLevel = db.Level or 1
+			
 			if currentSkill >= (cd.minSkill or 0) then
-				table.insert(result, cd)
+				if not cd.levelReq or altLevel >= cd.levelReq then
+					table.insert(result, cd)
+				end
 			end
 		end
 	end
@@ -302,32 +301,54 @@ local function DoneText(done)
 end
 
 ------------------------------------------------------------------------
--- Main table frame
+-- Main Interface UI
 ------------------------------------------------------------------------
 local mainFrame = nil
 
 local function BuildMainFrame()
+	if mainFrame then
+		local children = { mainFrame:GetChildren() }
+		for _, child in ipairs(children) do
+			child:Hide()
+			child:SetParent(nil)
+		end
+		local regions = { mainFrame:GetRegions() }
+		for _, region in ipairs(regions) do
+			if region.Hide then region:Hide() end
+			region:SetParent(nil)
+		end
+	else
+		mainFrame = CreateFrame("Frame", "AltManagerMainFrame", UIParent, "BackdropTemplate")
+		mainFrame:SetFrameStrata("DIALOG")
+		mainFrame:SetMovable(true)
+		mainFrame:EnableMouse(true)
+		mainFrame:RegisterForDrag("LeftButton")
+		mainFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+		mainFrame:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
+	end
+
+	mainFrame:SetScript("OnHide", function() mainFrame = nil end)
+
 	local chars = {}
-	for k,_ in pairs(AltManager.db.global) do
-		if k ~= "LastReset" then
+	for k, _ in pairs(AltManager.db.global) do
+		if k ~= "LastReset" and k ~= "Config" then
 			table.insert(chars, k)
 		end
 	end
-	table.sort(chars, function(a,b)
+	table.sort(chars, function(a, b)
 		if a == me then return true end
 		if b == me then return false end
 		return a < b
 	end)
 
 	local COL_LABEL_W  = 120
-	local COL_ALT_W    = 70
+	local COL_ALT_W    = 75
 	local ROW_H        = 30
 	local HEADER_H     = 36
 	local PAD          = 8
 	local TITLE_H      = 22
 	local ICON_SIZE    = 16
 
-	-- Unify both standard tasks and profession cooldown tracking into rows
 	local allRows = {}
 	for _, taskKey in ipairs(columnOrder) do
 		table.insert(allRows, { type = "task", key = taskKey })
@@ -337,26 +358,12 @@ local function BuildMainFrame()
 
 	local numTasks = #allRows
 	local numAlts  = #chars
-	local frameW = PAD*2 + COL_LABEL_W + numAlts * COL_ALT_W
+	local frameW = PAD*2 + COL_LABEL_W + (numAlts > 0 and numAlts * COL_ALT_W or COL_ALT_W)
 	local frameH = PAD*2 + TITLE_H + HEADER_H + numTasks * ROW_H + PAD
 
-	if mainFrame then
-		mainFrame:SetScript("OnHide", nil)
-		mainFrame:Hide()
-		mainFrame = nil
-	end
-
-	mainFrame = CreateFrame("Frame", "AltManagerMainFrame", UIParent)
 	mainFrame:SetWidth(frameW)
 	mainFrame:SetHeight(frameH)
 	mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	mainFrame:SetFrameStrata("DIALOG")
-	mainFrame:SetMovable(true)
-	mainFrame:EnableMouse(true)
-	mainFrame:RegisterForDrag("LeftButton")
-	mainFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-	mainFrame:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
-	mainFrame:SetScript("OnHide", function() mainFrame = nil end)
 
 	mainFrame:SetBackdrop({
 		bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -367,24 +374,17 @@ local function BuildMainFrame()
 	mainFrame:SetBackdropColor(0.06, 0.06, 0.06, 0.96)
 	mainFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
-
 	local closeBtn = CreateFrame("Button", "AltManagerCloseBtn", mainFrame, "UIPanelCloseButton")
 	closeBtn:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", 1, 1)
-	closeBtn:SetScript("OnClick", function()
-		mainFrame:SetScript("OnHide", nil)
-		mainFrame:Hide()
-		mainFrame = nil
-	end)
+	closeBtn:SetScript("OnClick", function() mainFrame:Hide() end)
 
-	local yStart   = -(TITLE_H + PAD)
-
+	local yStart = -(TITLE_H + PAD)
 	local titleTxt = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	titleTxt:SetWidth(COL_LABEL_W - 4) -- Give it a matching width boundaries
+	titleTxt:SetWidth(COL_LABEL_W - 4)
 	titleTxt:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, yStart - 6)
 	titleTxt:SetText("AltManager")
-	titleTxt:SetJustifyH("CENTER") -- Keeps it cleanly centered over the tasks column
+	titleTxt:SetJustifyH("CENTER")
 
-	-- ── Column headers ─────────────────────────────────────────────────
 	for ci, charKey in ipairs(chars) do
 		local x = PAD + COL_LABEL_W + (ci-1)*COL_ALT_W
 		local displayName = charKey:match("^(.+) %- ") or charKey
@@ -420,7 +420,6 @@ local function BuildMainFrame()
 
 	local yContent = yStart - HEADER_H - 2
 
-	-- ── Table Rows Renderer ───────────────────────────────────────────
 	for ri, rowData in ipairs(allRows) do
 		local y = yContent - (ri-1)*ROW_H
 
@@ -433,20 +432,16 @@ local function BuildMainFrame()
 			rowBg:SetVertexColor(1, 1, 1, 0.05)
 		end
 
+		local taskKey = rowData.key
+
 		if rowData.type == "task" then
-			local taskKey = rowData.key
 			local labelStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			labelStr:SetWidth(COL_LABEL_W - PAD - 4)
 			labelStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 2)
-			labelStr:SetText("|cFFFFFFFF"..L[taskKey].."|r")
+			labelStr:SetText("|cFFFFFFFF"..(L[taskKey] or taskKey).."|r")
 			labelStr:SetJustifyH("CENTER")
 
-			local resetStr
-			if tasks[taskKey].isDaily then
-				resetStr = FormatTimeUntil(nil, true)
-			else
-				resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), false)
-			end
+			local resetStr = tasks[taskKey].isDaily and FormatTimeUntil(nil, true) or FormatTimeUntil(GetResetForAlt(me, taskKey), false)
 			local timerStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			timerStr:SetWidth(COL_LABEL_W - PAD - 4)
 			timerStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 16)
@@ -470,9 +465,28 @@ local function BuildMainFrame()
 				cellTxt:SetText(DoneText(done))
 				cellTxt:SetTextColor(r, g, b)
 				cellTxt:SetJustifyH("CENTER")
+
+				local cellBtn = CreateFrame("Button", nil, mainFrame)
+				cellBtn:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x, y)
+				cellBtn:SetSize(COL_ALT_W, ROW_H)
+				cellBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+				cellBtn:SetScript("OnEnter", function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:AddLine(L[taskKey] or taskKey, 1, 1, 1)
+					if done == 2 then
+						GameTooltip:AddLine("Status: |cff33ff33Completed|r")
+					elseif done == 1 then
+						GameTooltip:AddLine("Status: |cffffcc00In Progress|r")
+					elseif done == 0 then
+						GameTooltip:AddLine("Status: |cffff3333Incomplete|r")
+					else
+						GameTooltip:AddLine("Status: |cff999999Not Eligible|r")
+					end
+					GameTooltip:Show()
+				end)
+				cellBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			end
 		elseif rowData.type == "prof" then
-			local cdSlot = rowData.key
 			local labelStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			labelStr:SetWidth(COL_LABEL_W - PAD - 4)
 			labelStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 8)
@@ -481,7 +495,7 @@ local function BuildMainFrame()
 
 			for ci, charKey in ipairs(chars) do
 				local x    = PAD + COL_LABEL_W + (ci-1)*COL_ALT_W
-				local db   = AltManager.db.global[charKey]
+				local db   = GetCharProfile(charKey)
 
 				local cellBg = mainFrame:CreateTexture(nil, "BACKGROUND")
 				cellBg:SetPoint("TOPLEFT",     mainFrame, "TOPLEFT", x + 1,             y - 1)
@@ -489,94 +503,95 @@ local function BuildMainFrame()
 				cellBg:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
 				cellBg:SetVertexColor(0.1, 0.1, 0.1, 0.4)
 
-				if db then
-					local cds = GetProfCooldownsForAlt(charKey, cdSlot)
-					if #cds == 1 then
-						local cd = cds[1]
-						local iconX = x + 27
-						local iconY = y - 2
-
-						local iconTex = mainFrame:CreateTexture(nil, "OVERLAY")
-						iconTex:SetWidth(ICON_SIZE)
-						iconTex:SetHeight(ICON_SIZE)
-						iconTex:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", iconX, iconY)
-						iconTex:SetTexture(cd.icon)
-
-						local expiry = db.profCooldowns and db.profCooldowns[cd.key] or 0
-						local cdStr  = FormatCooldownExpiry(expiry)
-						local isReady = (not expiry or expiry == 0 or expiry <= time())
-						local cdColor = isReady and "|cFF00FF00" or "|cFFFFAAAA"
-
-						local cdTxt = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-						cdTxt:SetWidth(COL_ALT_W - 4)
-						cdTxt:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 2, y - 16)
-						cdTxt:SetText(cdColor..cdStr.."|r")
-						cdTxt:SetJustifyH("CENTER")
-					elseif #cds == 2 then
-						local cd1 = cds[1]
-						local icon1X = x + 9
-						local icon1Y = y - 2
-
-						local iconTex1 = mainFrame:CreateTexture(nil, "OVERLAY")
-						iconTex1:SetWidth(ICON_SIZE)
-						iconTex1:SetHeight(ICON_SIZE)
-						iconTex1:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", icon1X, icon1Y)
-						iconTex1:SetTexture(cd1.icon)
-
-						local expiry1 = db.profCooldowns and db.profCooldowns[cd1.key] or 0
-						local cdStr1  = FormatCooldownExpiry(expiry1)
-						local isReady1 = (not expiry1 or expiry1 == 0 or expiry1 <= time())
-						local cdColor1 = isReady1 and "|cFF00FF00" or "|cFFFFAAAA"
-
-						local cdTxt1 = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-						cdTxt1:SetWidth(34)
-						cdTxt1:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 1, y - 16)
-						cdTxt1:SetText(cdColor1..cdStr1.."|r")
-						cdTxt1:SetJustifyH("CENTER")
-
-						local cd2 = cds[2]
-						local icon2X = x + 45
-						local icon2Y = y - 2
-
-						local iconTex2 = mainFrame:CreateTexture(nil, "OVERLAY")
-						iconTex2:SetWidth(ICON_SIZE)
-						iconTex2:SetHeight(ICON_SIZE)
-						iconTex2:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", icon2X, icon2Y)
-						iconTex2:SetTexture(cd2.icon)
-
-						local expiry2 = db.profCooldowns and db.profCooldowns[cd2.key] or 0
-						local cdStr2  = FormatCooldownExpiry(expiry2)
-						local isReady2 = (not expiry2 or expiry2 == 0 or expiry2 <= time())
-						local cdColor2 = isReady2 and "|cFF00FF00" or "|cFFFFAAAA"
-
-						local cdTxt2 = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-						cdTxt2:SetWidth(34)
-						cdTxt2:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 35, y - 16)
-						cdTxt2:SetText(cdColor2..cdStr2.."|r")
-						cdTxt2:SetJustifyH("CENTER")
+				local cds = GetProfCooldownsForAlt(charKey, taskKey)
+				
+				local cellBtn = CreateFrame("Button", nil, mainFrame)
+				cellBtn:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x, y)
+				cellBtn:SetSize(COL_ALT_W, ROW_H)
+				cellBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+				cellBtn:SetScript("OnEnter", function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:AddLine(rowData.label, 1, 1, 1)
+					if #cds == 0 then
+						GameTooltip:AddLine("No trackable professions active.", 0.5, 0.5, 0.5)
+					else
+						for _, cd in ipairs(cds) do
+							local expiry = db.profCooldowns and db.profCooldowns[cd.key] or 0
+							local ready = (not expiry or expiry == 0 or expiry <= GetServerUnixTime())
+							local statusText = ready and "|cff33ff33Ready|r" or "|cffff3333On Cooldown|r"
+							GameTooltip:AddDoubleLine(cd.label, statusText)
+						end
 					end
+					GameTooltip:Show()
+				end)
+				cellBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+				if #cds == 1 then
+					local cd = cds[1]
+					local iconTex = mainFrame:CreateTexture(nil, "OVERLAY")
+					iconTex:SetSize(ICON_SIZE, ICON_SIZE)
+					iconTex:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + (COL_ALT_W/2) - (ICON_SIZE/2), y - 2)
+					iconTex:SetTexture(cd.icon)
+
+					local expiry = db.profCooldowns and db.profCooldowns[cd.key] or 0
+					local cdStr  = FormatCooldownExpiry(expiry)
+					local cdColor = (not expiry or expiry == 0 or expiry <= GetServerUnixTime()) and "|cFF00FF00" or "|cFFFFAAAA"
+
+					local cdTxt = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+					cdTxt:SetWidth(COL_ALT_W - 4)
+					cdTxt:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 2, y - 16)
+					cdTxt:SetText(cdColor..cdStr.."|r")
+					cdTxt:SetJustifyH("CENTER")
+				elseif #cds == 2 then
+					local cd1 = cds[1]
+					local iconTex1 = mainFrame:CreateTexture(nil, "OVERLAY")
+					iconTex1:SetSize(ICON_SIZE, ICON_SIZE)
+					iconTex1:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 10, y - 2)
+					iconTex1:SetTexture(cd1.icon)
+
+					local expiry1 = db.profCooldowns and db.profCooldowns[cd1.key] or 0
+					local cdStr1  = FormatCooldownExpiry(expiry1)
+					local cdColor1 = (not expiry1 or expiry1 == 0 or expiry1 <= GetServerUnixTime()) and "|cFF00FF00" or "|cFFFFAAAA"
+
+					local cdTxt1 = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+					cdTxt1:SetWidth(36)
+					cdTxt1:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + 1, y - 16)
+					cdTxt1:SetText(cdColor1..cdStr1.."|r")
+					cdTxt1:SetJustifyH("CENTER")
+
+					local cd2 = cds[2]
+					local iconTex2 = mainFrame:CreateTexture(nil, "OVERLAY")
+					iconTex2:SetSize(ICON_SIZE, ICON_SIZE)
+					iconTex2:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + COL_ALT_W - 26, y - 2)
+					iconTex2:SetTexture(cd2.icon)
+
+					local expiry2 = db.profCooldowns and db.profCooldowns[cd2.key] or 0
+					local cdStr2  = FormatCooldownExpiry(expiry2)
+					local cdColor2 = (not expiry2 or expiry2 == 0 or expiry2 <= GetServerUnixTime()) and "|cFF00FF00" or "|cFFFFAAAA"
+
+					local cdTxt2 = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+					cdTxt2:SetWidth(36)
+					cdTxt2:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x + COL_ALT_W - 37, y - 16)
+					cdTxt2:SetText(cdColor2..cdStr2.."|r")
+					cdTxt2:SetJustifyH("CENTER")
 				end
 			end
 		end
 	end
-
 	mainFrame:Show()
 end
 
 function AltManager:ToggleMainFrame()
-	if mainFrame then
-		mainFrame:SetScript("OnHide", nil)
+	if mainFrame and mainFrame:IsShown() then
 		mainFrame:Hide()
-		mainFrame = nil
 	else
 		BuildMainFrame()
 	end
 end
 
 ------------------------------------------------------------------------
--- Profession detection and cooldown saving
+-- Profession Tracking Operations
 ------------------------------------------------------------------------
--- Profession name -> profID mapping for skill line name matching
 local PROF_SKILL_NAMES = {
 	["Leatherworking"] = 165,
 	["Alchemy"]        = 171,
@@ -584,22 +599,20 @@ local PROF_SKILL_NAMES = {
 }
 
 function AltManager:SaveProfessions()
-	local db = self.db.global[me]
+	local db = GetCharProfile()
 	if not db.professions then db.professions = {} end
 
 	local numSkills = GetNumSkillLines()
-	if numSkills == 0 then return end -- Guard gate against loading screens
+	if numSkills == 0 then return end
 
 	local tempProfessions = {}
 	local foundAny = false
 
 	for i = 1, numSkills do
-		-- skillRank is the 4th value returned by GetSkillLineInfo
 		local skillName, isHeader, _, skillRank = GetSkillLineInfo(i)
 		if not isHeader and skillName then
 			local profID = PROF_SKILL_NAMES[skillName]
 			if profID then
-				-- Store the numeric skill level (e.g. 265) instead of just 'true'
 				tempProfessions[profID] = skillRank or 0
 				foundAny = true
 			end
@@ -613,26 +626,21 @@ function AltManager:SaveProfessions()
 end
 
 function AltManager:SaveProfCooldowns()
-	local db = self.db.global[me]
-	if not db.profCooldowns  then db.profCooldowns = {} end
-	if not db.professions    then db.professions   = {} end
+	local db = GetCharProfile()
+	local serverTime = GetServerUnixTime()
 	
 	for _, cd in ipairs(PROF_COOLDOWNS) do
 		local expiry = cd.checkFn()
 		
-		-- If the item is uncached, do NOT overwrite the database. Abort and keep previous data.
 		if expiry ~= "UNCACHED" then
 			local currentSkill = db.professions[cd.profID] or 0
 			
-			if (expiry and type(expiry) == "number" and expiry > time()) or (currentSkill >= (cd.minSkill or 0)) then
-				
-				-- Safety reconstruction fallback
-				if expiry and type(expiry) == "number" and expiry > time() and currentSkill == 0 then
+			if (expiry and type(expiry) == "number" and expiry > serverTime) or (currentSkill >= (cd.minSkill or 0)) then
+				if expiry and type(expiry) == "number" and expiry > serverTime and currentSkill == 0 then
 					db.professions[cd.profID] = cd.minSkill or 300
 				end
 				
-				-- Save only verified timestamps
-				if expiry and (expiry > time() or expiry == 0) then
+				if expiry and (expiry > serverTime or expiry == 0) then
 					db.profCooldowns[cd.key] = expiry
 				end
 			end
@@ -640,9 +648,45 @@ function AltManager:SaveProfCooldowns()
 	end
 end
 
+function AltManager:WarmupItemCache()
+	for _, cd in ipairs(PROF_COOLDOWNS) do
+		if cd.itemID then
+			GetItemInfo(cd.itemID)
+		end
+	end
+end
+
+function AltManager:PurgeObsoleteProfiles()
+	local serverTime = GetServerUnixTime()
+	for profileKey, profileData in pairs(self.db.global) do
+		if profileKey ~= "LastReset" and type(profileData) == "table" then
+			local shouldPurge = true
+			
+			for key, val in pairs(profileData) do
+				if type(val) == "table" and val.done and val.done ~= -1 then
+					shouldPurge = false
+					break
+				end
+			end
+			
+			if shouldPurge and profileData.profCooldowns then
+				for _, expiry in pairs(profileData.profCooldowns) do
+					if expiry and expiry > serverTime then
+						shouldPurge = false
+						break
+					end
+				end
+			end
+			
+			if shouldPurge then
+				self.db.global[profileKey] = nil
+			end
+		end
+	end
+end
 
 ------------------------------------------------------------------------
--- Lifecycle
+-- Lifecycle Engine
 ------------------------------------------------------------------------
 function AltManager:OnInitialize()
 	self:RegisterChatCommand("am", "SlashHandler")
@@ -657,9 +701,7 @@ function AltManager:OnEnable()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "CheckIDs")
 	self:RegisterEvent("SKILL_LINES_CHANGED",   "SaveProfessions")
 	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE","CheckBGCurrency")
-	-- SPELL_UPDATE_COOLDOWN fires when any spell CD changes — use to detect transmute/mooncloth use
 	self:RegisterEvent("SPELL_UPDATE_COOLDOWN", "OnCooldownUpdate")
-	-- BAG_UPDATE_COOLDOWN fires when item CDs change (salt shaker, Epoch items)
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN",   "OnCooldownUpdate")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScanQuestLog")
 	quixote.RegisterCallback(AltManager, "Quest_Abandoned")
@@ -669,17 +711,23 @@ function AltManager:OnEnable()
 end
 
 function AltManager:Loading()
+	local db = GetCharProfile()
+	db.Level = UnitLevel("player") or 1
+
 	self:CheckLevel()
 	self:GetWeeklyReset()
 	self:LoadSV()
 	self:CheckIDs()
 	self:CheckQuest()
 	self:SaveProfessions()
-	
-	-- Force scan active profession timers directly upon log-in
 	self:SaveProfCooldowns()
+	self:WarmupItemCache()
+	self:PurgeObsoleteProfiles()
 
-	-- BG currency snapshot — GetCurrencyInfo(id) returns name, texture, count in 3.3.5a
+	self:ScheduleTimer(function()
+		AltManager:SaveProfCooldowns()
+	end, 5)
+
 	if GetCurrencyInfo then
 		local _, _, qty = GetCurrencyInfo(BG_CURRENCY_ID)
 		bgCurrencySnapshot = qty or 0
@@ -691,18 +739,15 @@ function AltManager:Loading()
 	AMConfig:RegisterOptionsTable("AltManager", AltManager:Options())
 	AMConfigDialog:AddToBlizOptions("AltManager", "AltManager-Epoch")
 	
-	-- Listen for whenever the player changes zones or finishes loading screens 
-	-- to ensure existing cooldown states check continuously.
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "SaveProfCooldowns")
 end
 
 function AltManager:OnCooldownUpdate()
-	-- Re-save cooldowns whenever spell or item CDs change
 	self:SaveProfCooldowns()
 end
 
 ------------------------------------------------------------------------
--- Slash commands
+-- Slash Commands
 ------------------------------------------------------------------------
 function AltManager:SlashHandler(msg)
 	if msg == "hide" then
@@ -717,15 +762,17 @@ function AltManager:SlashHandler(msg)
 	elseif msg == "list" then
 		local i = 1
 		for k,_ in pairs(self.db.global) do
-			listChars[i] = k
-			self:Printf("%s - %s", i, k)
-			i = i+1
+			if k ~= "LastReset" then
+				listChars[i] = k
+				self:Printf("%s - %s", i, k)
+				i = i+1
+			end
 		end
 	elseif string.find(msg, "del") then
 		local num = tonumber(string.match(msg, "%d+"))
 		if num and listChars[num] then
 			self:Printf("%s %s - %s. %s.", L.SlashCmdDeleting, num, listChars[num], L.SlashCmdWiped)
-			wipe(self.db.global[listChars[num]])
+			self.db.global[listChars[num]] = nil
 		elseif num then
 			self:Printf("%s %s %s.", L.SlashCmdChar, num, L.SlashCmdNExist)
 		end
@@ -738,7 +785,7 @@ function AltManager:SlashHandler(msg)
 end
 
 ------------------------------------------------------------------------
--- Quest callbacks
+-- Quest Callbacks
 ------------------------------------------------------------------------
 function AltManager:Quest_Abandoned(event, name, uid)
 	for tipe,_ in pairs(questsList) do
@@ -769,43 +816,46 @@ function AltManager:Quest_Lost(event, name, uid)
 end
 
 ------------------------------------------------------------------------
--- Task state management
+-- Task State Management
 ------------------------------------------------------------------------
 function AltManager:SetDone(task, number, reset)
 	tasks[task].done = number
-	self.db.global[me][task].done = number
+	local db = GetCharProfile()
+	if not db[task] then db[task] = {} end
+	db[task].done = number
 	if reset then
-		if reset < time() then
-			self.db.global[me][task].reset = time() + reset
+		if reset < GetServerUnixTime() then
+			db[task].reset = GetServerUnixTime() + reset
 		else
-			self.db.global[me][task].reset = reset
+			db[task].reset = reset
 		end
 	end
 end
 
 function AltManager:SetZero(task)
 	tasks[task].done = 0
-	if self.db.global[me][task].done == -1 then self.db.global[me][task].done = 0 end
+	local db = GetCharProfile()
+	if not db[task] then db[task] = {} end
+	if db[task].done == -1 then db[task].done = 0 end
 end
 
 function AltManager:GetStatus(task, charKey)
-	local targetChar = charKey or me
-	local db = self.db.global[targetChar]
+	local db = GetCharProfile(charKey)
 	if db and db[task] then 
 		return db[task].done or -1 
 	end
 	return -1
 end
+
 ------------------------------------------------------------------------
--- Checking functions
+-- Checking Functions
 ------------------------------------------------------------------------
 function AltManager:CheckLevel()
 	local lv = UnitLevel("player")
-	-- If they don't meet minimum requirements, set status to -1 (Untracked/Hidden)
 	if lv < 10 then 
 		self:SetDone("BG", -1) 
 	elseif self:GetStatus("BG") == -1 then
-		self:SetDone("BG", 0) -- Activate tracking once eligible
+		self:SetDone("BG", 0)
 	end
 
 	if lv < 54 then 
@@ -816,9 +866,8 @@ function AltManager:CheckLevel()
 end
 
 function AltManager:GetWeeklyReset()
-	local db = self.db.global[me]
-	if not db then return end
-	if not db.LastReset then db.LastReset = { reset = nil } end -- Safety gate
+	local db = GetCharProfile()
+	if not db.LastReset then db.LastReset = { reset = nil } end
 
 	local numInstances = GetNumSavedInstances()
 	for i = 1, numInstances do
@@ -830,7 +879,6 @@ function AltManager:GetWeeklyReset()
 end
 
 function AltManager:CheckIDs()
-	-- First reset current local character raid statuses to 0 before validating lockouts
 	for k, v in pairs(tasks) do
 		if v.tipe == "raid" and self:GetStatus(k) ~= -1 then
 			self:SetDone(k, 0)
@@ -852,13 +900,11 @@ function AltManager:CheckIDs()
 end
 
 function AltManager:CheckBGCurrency()
-	-- Only run checks if the daily task is actively "Not Done" (0)
 	if self:GetStatus("BG") == 0 then
 		if not GetCurrencyInfo then return end
 		local _, _, quantity = GetCurrencyInfo(BG_CURRENCY_ID)
 		quantity = quantity or 0
 
-		-- Ensure a meaningful token gain occurred, and ignore baseline setup values (0)
 		if bgCurrencySnapshot > 0 and quantity > bgCurrencySnapshot then
 			local inBG       = UnitInBattleground("player")
 			local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
@@ -869,8 +915,6 @@ function AltManager:CheckBGCurrency()
 		end
 		bgCurrencySnapshot = quantity
 	else
-		-- If already marked completed, keep updating the snapshot silently 
-		-- to prevent reload/desync spikes later.
 		if GetCurrencyInfo then
 			local _, _, quantity = GetCurrencyInfo(BG_CURRENCY_ID)
 			bgCurrencySnapshot = quantity or 0
@@ -897,15 +941,15 @@ function AltManager:ScanQuestLog(ids)
 end
 
 ------------------------------------------------------------------------
--- Saved variable loading / expiry
+-- Saved Variable Loading / Expiry
 ------------------------------------------------------------------------
 function AltManager:LoadSV()
 	if self.db.char then wipe(self.db.char) end
 	if self.db.global then
+		local serverTime = GetServerUnixTime()
 		for k1, v1 in pairs(self.db.global) do
 			if k1 ~= "LastReset" then
 				for k2, v2 in pairs(v1) do
-					-- Explicitly bypass custom layout metrics tables
 					if k2 ~= "profCooldowns" and k2 ~= "professions" and type(v2) == "table" then
 						local dbDone = v2.done
 						local dbReset = v2.reset
@@ -913,14 +957,13 @@ function AltManager:LoadSV()
 						if dbDone and dbDone == 2 then
 							if not dbReset then
 								if tasks[k2] and tasks[k2].isDaily then
-									dbReset = time() + SecondsUntilDailyReset()
+									dbReset = serverTime + SecondsUntilDailyReset()
 								else
 									dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
 								end
 							end
 							
-							-- CRITICAL: Ensure local modifications are completely character isolated
-							if dbReset and dbReset < time() then 
+							if dbReset and dbReset < serverTime then 
 								if k1 == me then
 									self:SetDone(k2, 0) 
 								else
@@ -936,14 +979,15 @@ function AltManager:LoadSV()
 end
 
 ------------------------------------------------------------------------
--- Minimap icon
+-- Minimap Broker Icon & Tooltips
 ------------------------------------------------------------------------
 function AltManager:CreateMinimapIcon()
 	if not LDB then return end
 
 	local function BuildTooltip(tt)
+		local serverTime = GetServerUnixTime()
 		tt:AddLine("|cFFFFD700AltManager-Epoch|r")
-		tt:AddLine("|cFFAAAAAA"..L.ClickToOpen.."|r")
+		tt:AddLine("|cFFAAAAAA"..(L.ClickToOpen or "Click to open").."|r")
 		tt:AddLine(" ")
 
 		local function ResetStr(taskKey)
@@ -954,26 +998,25 @@ function AltManager:CreateMinimapIcon()
 			end
 		end
 
-		tt:AddLine("|cFFFFFFFF"..L.RaidIDs.."|r")
+		tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
 		for _, taskKey in ipairs(columnOrder) do
 			if tasks[taskKey].tipe == "raid" then
 				local done = GetDoneForAlt(me, taskKey)
 				local r,g,b = DoneColor(done)
-				tt:AddDoubleLine(L[taskKey], DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
 			end
 		end
 		tt:AddLine(" ")
-		tt:AddLine("|cFFFFFFFF"..L.DailyQuests.."|r")
+		tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
 		for _, taskKey in ipairs(columnOrder) do
 			if tasks[taskKey].tipe == "job" or tasks[taskKey].tipe == "misc" then
 				local done = GetDoneForAlt(me, taskKey)
 				local r,g,b = DoneColor(done)
-				tt:AddDoubleLine(L[taskKey], DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
 			end
 		end
 
-		-- Profession cooldowns for current character
-		local db = AltManager.db.global[me]
+		local db = GetCharProfile()
 		if db and db.professions then
 			local hasAny = false
 			for _, cd in ipairs(PROF_COOLDOWNS) do
@@ -986,7 +1029,7 @@ function AltManager:CreateMinimapIcon()
 					if db.professions[cd.profID] then
 						local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
 						local cdStr   = FormatCooldownExpiry(expiry)
-						local isReady = (not expiry or expiry == 0 or expiry <= time())
+						local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
 						local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
 						tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
 					end
@@ -1005,9 +1048,7 @@ function AltManager:CreateMinimapIcon()
 				InterfaceOptionsFrame_OpenToCategory("AltManager-Epoch")
 			end
 		end,
-		OnTooltipShow = function(tt)
-			BuildTooltip(tt)
-		end,
+		OnTooltipShow = function(tt) BuildTooltip(tt) end,
 	})
 
 	if LDBIcon then
@@ -1015,12 +1056,30 @@ function AltManager:CreateMinimapIcon()
 	end
 end
 
-------------------------------------------------------------------------
--- Logout
-------------------------------------------------------------------------
 function AltManager:OnLogout()
+	local db = GetCharProfile()
+	db.Level = UnitLevel("player") or 1
 	self:GetWeeklyReset()
 	self:CheckIDs()
 	self:SaveProfessions()
 	self:SaveProfCooldowns()
+end
+
+function AltManager:Options()
+	return {
+		type = "group",
+		name = "AltManager",
+		args = {
+			minimap = {
+				type = "toggle",
+				name = "Hide Minimap Button",
+				get = function() return AltManager.db.profile.minimap.hide end,
+				set = function(_, val)
+					AltManager.db.profile.minimap.hide = val
+					if val then LDBIcon:Hide("AltManager") else LDBIcon:Show("AltManager") end
+				end,
+				order = 1,
+			}
+		}
+	end
 end
