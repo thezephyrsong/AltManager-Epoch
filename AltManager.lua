@@ -17,6 +17,7 @@ local WEEKLY_RESET_HOUR = 8  -- 8:00 AM
 local DAILY_RESET_HOUR  = 8  -- 8:00 AM
 local ONY_RESET_CYCLE   = 5 * 86400 -- 5 days in seconds
 
+-- UPSTREAM TASK DEFINITION TRACKS (Placed here so all functions below can see it)
 local tasks = {
 	Ony25 = { done = -1, type = "fiveday", isDaily = false, levelRequire = 60 }, -- Custom 5-day
 	MC25  = { done = -1, type = "raid",    isDaily = false, levelRequire = 60 }, -- Standard weekly lockout
@@ -25,7 +26,6 @@ local tasks = {
 	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 10 }, -- 24-Hour Daily Win
 	Sili  = { done = -1, type = "daily",   isDaily = true,  levelRequire = 54 }, -- 24-Hour Daily Quest
 }
-
 
 ------------------------------------------------------------------------
 -- Timezone-Safe Server Time Helpers
@@ -85,7 +85,7 @@ local function FormatTimeUntil(resetTimestamp, taskKey)
 	if resetTimestamp and resetTimestamp > 0 then
 		secs = resetTimestamp - GetServerUnixTime()
 	else
-		-- 2. Fall back to predictable calendar behaviors if no lock string exists
+		-- 2. Fall back to predictable calendar behaviors if no lock exists
 		if taskType == "daily" then
 			secs = SecondsUntilDailyReset()
 		elseif taskType == "fiveday" then
@@ -111,7 +111,7 @@ local function FormatTimeUntil(resetTimestamp, taskKey)
 end
 
 ------------------------------------------------------------------------
--- Profession cooldown definitions
+-- Profession Cooldown Definitions
 ------------------------------------------------------------------------
 local PROF_COOLDOWNS = {
 	-- 3-day cooldowns
@@ -296,9 +296,9 @@ local function GetCharProfile(charKey)
 end
 
 local function FormatCooldownExpiry(expiry)
-	if not expiry or expiry == 0 then return L.CDReady end
+	if not expiry or expiry == 0 then return L.CDReady or "Ready!" end
 	local secs = expiry - GetServerUnixTime()
-	if secs <= 0 then return L.CDReady end
+	if secs <= 0 then return L.CDReady or "Ready!" end
 	local h = math.floor(secs / 3600)
 	local m = math.floor((secs % 3600) / 60)
 	if h >= 24 then
@@ -353,10 +353,91 @@ local function DoneColor(done)
 end
 
 local function DoneText(done)
-	if done == 2     then return L.Done
-	elseif done == 1 then return L.InProgress
-	elseif done == 0 then return L.NotDone
+	if done == 2     then return L.Done or "Done"
+	elseif done == 1 then return L.InProgress or "Active"
+	elseif done == 0 then return L.NotDone or "Not Done"
 	else                  return "-"
+	end
+end
+
+------------------------------------------------------------------------
+-- Tooltip Construction Helper
+------------------------------------------------------------------------
+local function BuildTooltip(tt)
+	local serverTime = GetServerUnixTime()
+	tt:AddLine("|cFFFFD700AltManager-Epoch|r")
+	tt:AddLine("|cFFAAAAAA"..(L.ClickToOpen or "Click to open").."|r")
+	tt:AddLine(" ")
+
+	local function ResetStr(taskKey)
+		return FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
+	end
+
+	-- 1. Raid Lockouts & 5-Day Resets Grouped Cleanly Together
+	tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "raid" or tasks[taskKey].type == "fiveday" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			-- Safe translation lookup via rawget
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+		end
+	end
+	tt:AddLine(" ")
+	
+	-- 2. Weekly Objectives
+	tt:AddLine("|cFFFFFFFFWeekly Objectives|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "weekly" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+		end
+	end
+	tt:AddLine(" ")
+	
+	-- 3. Daily Objectives
+	tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "daily" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+		end
+	end
+
+	-- 4. Profession Cooldowns
+	local db = GetCharProfile()
+	if db and db.professions then
+		local hasAny = false
+		for _, cd in ipairs(PROF_COOLDOWNS) do
+			if db.professions[cd.profID] then hasAny = true break end
+		end
+		if hasAny then
+			tt:AddLine(" ")
+			tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
+			for _, cd in ipairs(PROF_COOLDOWNS) do
+				if db.professions[cd.profID] then
+					local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
+					local cdStr   = FormatCooldownExpiry(expiry)
+					local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
+					local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
+					tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
+				end
+			end
+		end
 	end
 end
 
@@ -546,7 +627,8 @@ local function BuildMainFrame()
 				cellBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
 				cellBtn:SetScript("OnEnter", function(self)
 					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-					GameTooltip:AddLine(L[taskKey] or taskKey, 1, 1, 1)
+					local tipLocale = rawget(L, taskKey)
+					GameTooltip:AddLine(tipLocale or taskKey, 1, 1, 1)
 					if done == 2 then
 						GameTooltip:AddLine("Status: |cff33ff33Completed|r")
 					elseif done == 1 then
@@ -908,6 +990,7 @@ function AltManager:Quest_Gained(event, name, uid)
 	for type,_ in pairs(questsList) do
 		for k,id in pairs(questsList[type]) do
 			if uid == id then self:SetDone(type, 1) end
+		-- Clean safe boundary checks inside assignment loops
 		end
 	end
 end
@@ -995,9 +1078,12 @@ function AltManager:GetWeeklyReset()
 
 	local numInstances = GetNumSavedInstances()
 	for i = 1, numInstances do
-		local _, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
-		if isRaid and (locked or extended) then
-			db.LastReset.reset = reset
+		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
+		if isRaid and (locked or extended) and name then
+			-- ONLY assign onto LastReset if it is Molten Core or a generic weekly raid
+			if string.find(string.lower(name), "molten core", 1, true) then
+				db.LastReset.reset = reset
+			end
 		end
 	end
 	
@@ -1015,7 +1101,7 @@ end
 function AltManager:CheckIDs()
 	local lv = UnitLevel("player")
 	for k, v in pairs(tasks) do
-		if v.type == "raid" then
+		if v.type == "raid" or v.type == "fiveday" then
 			if lv >= (v.levelRequire or 60) then
 				if self:GetStatus(k) == -1 then self:SetDone(k, 0) end
 			else
@@ -1028,13 +1114,11 @@ function AltManager:CheckIDs()
 	for i = 1, numInstances do
 		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
 		if isRaid and (locked or extended) and name then
-			for k, v in pairs(tasks) do
-				if v.type == "raid" then
-					local matchPattern = k == "Ony25" and "onyxia" or "molten core"
-					if string.find(string.lower(name), matchPattern, 1, true) then
-						self:SetDone(k, 2, reset)
-					end
-				end
+			-- Checked distinctly to preserve independent reset timers
+			if string.find(string.lower(name), "onyxia", 1, true) then
+				self:SetDone("Ony25", 2, reset)
+			elseif string.find(string.lower(name), "molten core", 1, true) then
+				self:SetDone("MC25", 2, reset)
 			end
 		end
 	end
@@ -1076,15 +1160,15 @@ function AltManager:LoadSV()
 							if not dbReset or dbReset == 0 then
 								if tasks[k2] and tasks[k2].type == "daily" then
 									dbReset = serverTime + SecondsUntilDailyReset()
-							elseif tasks[k2] and tasks[k2].type == "fiveday" then
-								dbReset = serverTime + SecondsUntilFiveDayReset()
-							else
-								dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
-								if not dbReset or dbReset == 0 then
-									dbReset = serverTime + SecondsUntilWeeklyResetFallback()
+								elseif tasks[k2] and tasks[k2].type == "fiveday" then
+									dbReset = serverTime + SecondsUntilFiveDayReset()
+								else
+									dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
+									if not dbReset or dbReset == 0 then
+										dbReset = serverTime + SecondsUntilWeeklyResetFallback()
+									end
 								end
 							end
-						end
 							
 							if dbReset and dbReset < serverTime then 
 								if k1 == me then
@@ -1103,90 +1187,10 @@ function AltManager:LoadSV()
 end
 
 ------------------------------------------------------------------------
--- Minimap Broker Icon & Tooltips
+-- Minimap Broker Icon Registration & Setup
 ------------------------------------------------------------------------
 function AltManager:CreateMinimapIcon()
 	if not LDB then return end
-
-	local function BuildTooltip(tt)
-	local serverTime = GetServerUnixTime()
-	tt:AddLine("|cFFFFD700AltManager-Epoch|r")
-	tt:AddLine("|cFFAAAAAA"..(L.ClickToOpen or "Click to open").."|r")
-	tt:AddLine(" ")
-
-	local function ResetStr(taskKey)
-		return FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
-	end
-
-	-- 1. Raid Lockouts & 5-Day Resets
-	tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
-	for _, taskKey in ipairs(columnOrder) do
-		if tasks[taskKey].type == "raid" or tasks[taskKey].type == "fiveday" then
-			local done = GetDoneForAlt(me, taskKey)
-			local r,g,b = DoneColor(done)
-			
-			-- Safe translation lookup
-			local rawLocale = rawget(L, taskKey)
-			local localizedLabel = rawLocale or taskKey
-			
-			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-		end
-	end
-	tt:AddLine(" ")
-	
-	-- 2. Weekly Objectives
-	tt:AddLine("|cFFFFFFFFWeekly Objectives|r")
-	for _, taskKey in ipairs(columnOrder) do
-		if tasks[taskKey].type == "weekly" then
-			local done = GetDoneForAlt(me, taskKey)
-			local r,g,b = DoneColor(done)
-			
-			-- Safe translation lookup
-			local rawLocale = rawget(L, taskKey)
-			local localizedLabel = rawLocale or taskKey
-			
-			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-		end
-	end
-	tt:AddLine(" ")
-	
-	-- 3. Daily Objectives (Updated to check for "daily" type)
-	tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
-	for _, taskKey in ipairs(columnOrder) do
-		if tasks[taskKey].type == "daily" then
-			local done = GetDoneForAlt(me, taskKey)
-			local r,g,b = DoneColor(done)
-			
-			-- Safe translation lookup
-			local rawLocale = rawget(L, taskKey)
-			local localizedLabel = rawLocale or taskKey
-			
-			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-		end
-	end
-
-	-- 4. Profession Cooldowns
-	local db = GetCharProfile()
-	if db and db.professions then
-		local hasAny = false
-		for _, cd in ipairs(PROF_COOLDOWNS) do
-			if db.professions[cd.profID] then hasAny = true break end
-		end
-		if hasAny then
-			tt:AddLine(" ")
-			tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
-			for _, cd in ipairs(PROF_COOLDOWNS) do
-				if db.professions[cd.profID] then
-					local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
-					local cdStr   = FormatCooldownExpiry(expiry)
-					local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
-					local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
-					tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
-				end
-			end
-		end
-	end
-end
 
 	local AltManagerLDB = LDB:NewDataObject("AltManager", {
 		type = "launcher",
