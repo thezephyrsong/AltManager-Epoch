@@ -55,10 +55,17 @@ local PROF_COOLDOWNS = {
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Transmute",
 		checkFn  = function()
+			-- Safety: If the client spellbook API isn't tracking the spell name yet, flag it as UNCACHED
+			local name = GetSpellInfo(17187)
+			if not name or name == "" then return "UNCACHED" end
+
 			local start, duration = GetSpellCooldown(17187)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return GetServerUnixTime() + remaining
+			elseif (not start or start == 0) and (not duration or duration == 0) then
+				-- If the client returns a flat 0 right at loading screen, check if spellbook is fully synced
+				if not AltManager.spellbookLoaded then return "UNCACHED" end
 			end
 			return 0
 		end,
@@ -73,10 +80,15 @@ local PROF_COOLDOWNS = {
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Mooncloth",
 		checkFn  = function()
+			local name = GetSpellInfo(18560)
+			if not name or name == "" then return "UNCACHED" end
+
 			local start, duration = GetSpellCooldown(18560)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return GetServerUnixTime() + remaining
+			elseif (not start or start == 0) and (not duration or duration == 0) then
+				if not AltManager.spellbookLoaded then return "UNCACHED" end
 			end
 			return 0
 		end,
@@ -155,6 +167,7 @@ local DBDefault = {
 	global = {
 		[me] = {
 			Level = 1,
+			Class = nil,
 			LastReset = { reset = nil },
 			Sili  = { done = -1, handle = true },
 			BG    = { done = -1, handle = true },
@@ -384,17 +397,15 @@ local function BuildMainFrame()
 		local displayName = charKey:match("^(.+) %- ") or charKey
 		local realmName   = charKey:match(" %- (.+)$") or ""
 		
-		-- Fetch the target alt's profile data
 		local db = GetCharProfile(charKey)
-		local nameColor = "|cFFFFFFFF" -- Default color fallback (White)
+		local nameColor = "|cFFFFFFFF" 
 
-		-- Check if we have class data saved for this specific alt
+		-- Apply class-colored names dynamically using the global RAID_CLASS_COLORS dictionary
 		if db and db.Class and RAID_CLASS_COLORS[db.Class] then
 			local colorObj = RAID_CLASS_COLORS[db.Class]
-			-- Convert the RGB values (0-1) to an 8-digit hex color string (AARRGGBB)
 			nameColor = string.format("|cff%02x%02x%02x", colorObj.r * 255, colorObj.g * 255, colorObj.b * 255)
 		elseif charKey == me then
-			nameColor = "|cFFFFD700" -- Special fallback for current character (Gold) if class data isn't set yet
+			nameColor = "|cFFFFD700" 
 		end
 
 		local nameStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -699,6 +710,7 @@ function AltManager:OnInitialize()
 	self:RegisterChatCommand("altmanager", "SlashHandler")
 	self.db = LibStub("AceDB-3.0"):New("AMdb", DBDefault)
 	self:CreateMinimapIcon()
+	AltManager.spellbookLoaded = false
 end
 
 function AltManager:OnEnable()
@@ -710,6 +722,13 @@ function AltManager:OnEnable()
 	self:RegisterEvent("SPELL_UPDATE_COOLDOWN", "OnCooldownUpdate")
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN",   "OnCooldownUpdate")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScanQuestLog")
+	
+	-- Hook spellbook synchronization logs to safely unlock spell tracking states
+	self:RegisterEvent("SPELLS_CHANGED", function()
+		AltManager.spellbookLoaded = true
+		AltManager:SaveProfCooldowns()
+	end)
+
 	quixote.RegisterCallback(AltManager, "Quest_Abandoned")
 	quixote.RegisterCallback(AltManager, "Quest_Gained")
 	quixote.RegisterCallback(AltManager, "Quest_Lost")
@@ -720,7 +739,6 @@ function AltManager:Loading()
 	local db = GetCharProfile()
 	db.Level = UnitLevel("player") or 1
 	
-	-- Capture the English uppercase class token (e.g., "WARRIOR", "MAGE", "PRIEST")
 	local _, classToken = UnitClass("player")
 	db.Class = classToken
 
@@ -875,7 +893,6 @@ function AltManager:CheckLevel()
 		self:SetDone("Sili", 0) 
 	end
 
-	-- Initialize Raid Tracker matrices for eligible characters
 	if lv < 60 then
 		self:SetDone("Ony25", -1)
 		self:SetDone("MC25", -1)
@@ -914,10 +931,8 @@ function AltManager:CheckIDs()
 	for i = 1, numInstances do
 		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
 		if isRaid and (locked or extended) and name then
-			-- Look through tasks array definitions
 			for k, v in pairs(tasks) do
 				if v.tipe == "raid" then
-					-- Fuzzy name pattern lookup loop (Handles custom server text strings safely)
 					local matchPattern = k == "Ony25" and "onyxia" or "molten core"
 					if string.find(string.lower(name), matchPattern, 1, true) then
 						self:SetDone(k, 2, reset)
@@ -1090,7 +1105,7 @@ function AltManager:OnLogout()
 	db.Level = UnitLevel("player") or 1
 	local _, classToken = UnitClass("player")
 	db.Class = classToken
-	
+
 	self:GetWeeklyReset()
 	self:CheckIDs()
 	self:SaveProfessions()
