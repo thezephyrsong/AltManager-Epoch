@@ -383,7 +383,19 @@ local function BuildMainFrame()
 		local x = PAD + COL_LABEL_W + (ci-1)*COL_ALT_W
 		local displayName = charKey:match("^(.+) %- ") or charKey
 		local realmName   = charKey:match(" %- (.+)$") or ""
-		local nameColor   = (charKey == me) and "|cFFFFD700" or "|cFFFFFFFF"
+		
+		-- Fetch the target alt's profile data
+		local db = GetCharProfile(charKey)
+		local nameColor = "|cFFFFFFFF" -- Default color fallback (White)
+
+		-- Check if we have class data saved for this specific alt
+		if db and db.Class and RAID_CLASS_COLORS[db.Class] then
+			local colorObj = RAID_CLASS_COLORS[db.Class]
+			-- Convert the RGB values (0-1) to an 8-digit hex color string (AARRGGBB)
+			nameColor = string.format("|cff%02x%02x%02x", colorObj.r * 255, colorObj.g * 255, colorObj.b * 255)
+		elseif charKey == me then
+			nameColor = "|cFFFFD700" -- Special fallback for current character (Gold) if class data isn't set yet
+		end
 
 		local nameStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		nameStr:SetWidth(COL_ALT_W - 2)
@@ -707,6 +719,10 @@ end
 function AltManager:Loading()
 	local db = GetCharProfile()
 	db.Level = UnitLevel("player") or 1
+	
+	-- Capture the English uppercase class token (e.g., "WARRIOR", "MAGE", "PRIEST")
+	local _, classToken = UnitClass("player")
+	db.Class = classToken
 
 	self:CheckLevel()
 	self:GetWeeklyReset()
@@ -1072,6 +1088,9 @@ end
 function AltManager:OnLogout()
 	local db = GetCharProfile()
 	db.Level = UnitLevel("player") or 1
+	local _, classToken = UnitClass("player")
+	db.Class = classToken
+	
 	self:GetWeeklyReset()
 	self:CheckIDs()
 	self:SaveProfessions()
