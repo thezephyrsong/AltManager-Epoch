@@ -21,8 +21,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "SaltShaker",
 		cdSlot   = "3day",
-		profID   = 165,  -- Leatherworking
-		minSkill = 250,  -- Required skill level
+		profID   = 165,
+		minSkill = 250,
 		itemID   = 15846,
 		icon     = "Interface\\Icons\\inv_egg_05",
 		label    = "Salt Shaker",
@@ -31,6 +31,9 @@ local PROF_COOLDOWNS = {
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
+			elseif start == 0 and duration == 0 then
+				-- The game client hasn't queried the server for this item yet
+				return "UNCACHED"
 			end
 			return 0
 		end,
@@ -38,8 +41,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "Transmute",
 		cdSlot   = "3day",
-		profID   = 171,  -- Alchemy
-		minSkill = 275,  -- Required skill level (Arcanite requires 275)
+		profID   = 171,
+		minSkill = 275,
 		spellID  = 17187,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Transmute",
@@ -49,14 +52,14 @@ local PROF_COOLDOWNS = {
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
 			end
-			return 0
+			return 0 -- Spells are inherently cached by the client spellbook, 0 is safe here
 		end,
 	},
 	{
 		key      = "Mooncloth",
 		cdSlot   = "3day",
-		profID   = 197,  -- Tailoring
-		minSkill = 250,  -- Required skill level
+		profID   = 197,
+		minSkill = 250,
 		spellID  = 18560,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Mooncloth",
@@ -69,12 +72,12 @@ local PROF_COOLDOWNS = {
 			return 0
 		end,
 	},
-	-- 7-day cooldowns (Epoch custom items - usually requiring max skill)
+	-- 7-day cooldowns
 	{
 		key      = "MasterworkSalt",
 		cdSlot   = "7day",
-		profID   = 165,  -- Leatherworking
-		minSkill = 300,  -- Project Epoch endgame requirement
+		profID   = 165,
+		minSkill = 300,
 		itemID   = 60571,
 		icon     = "Interface\\Icons\\inv_misc_enggizmos_40",
 		label    = "Masterwork Salt",
@@ -83,6 +86,8 @@ local PROF_COOLDOWNS = {
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
+			elseif start == 0 and duration == 0 then
+				return "UNCACHED"
 			end
 			return 0
 		end,
@@ -90,8 +95,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "CrystalLattice",
 		cdSlot   = "7day",
-		profID   = 171,  -- Alchemy
-		minSkill = 300,  -- Project Epoch endgame requirement
+		profID   = 171,
+		minSkill = 300,
 		itemID   = 60686,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Crystal Lattice",
@@ -100,6 +105,8 @@ local PROF_COOLDOWNS = {
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
+			elseif start == 0 and duration == 0 then
+				return "UNCACHED"
 			end
 			return 0
 		end,
@@ -107,8 +114,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "SignetMoonlit",
 		cdSlot   = "7day",
-		profID   = 197,  -- Tailoring
-		minSkill = 300,  -- Project Epoch endgame requirement
+		profID   = 197,
+		minSkill = 300,
 		itemID   = 60603,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Signet",
@@ -117,11 +124,14 @@ local PROF_COOLDOWNS = {
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
+			elseif start == 0 and duration == 0 then
+				return "UNCACHED"
 			end
 			return 0
 		end,
 	},
 }
+
 
 -- Profession ID -> name mapping for display
 local PROF_NAMES = {
@@ -603,31 +613,33 @@ function AltManager:SaveProfessions()
 end
 
 function AltManager:SaveProfCooldowns()
-	local db = GetCharProfile() -- Safely defaults to 'me'
+	local db = self.db.global[me]
+	if not db.profCooldowns  then db.profCooldowns = {} end
+	if not db.professions    then db.professions   = {} end
 	
 	for _, cd in ipairs(PROF_COOLDOWNS) do
 		local expiry = cd.checkFn()
-		-- Fetch the live cooldown status from the game client cache
-		local expiry = cd.checkFn()
 		
-		-- Explicitly verify we are mutating data for the active logged-in character profile
-		local currentSkill = db.professions[cd.profID]
-		
-		-- Only process tracking updates if the player actively knows this profession tier
-		if (expiry and expiry > time()) or (currentSkill and currentSkill >= (cd.minSkill or 0)) then
+		-- If the item is uncached, do NOT overwrite the database. Abort and keep previous data.
+		if expiry ~= "UNCACHED" then
+			local currentSkill = db.professions[cd.profID] or 0
 			
-			-- Safety: Reconstruct broken database indices if loading screens caused a sync delay
-			if expiry and expiry > time() and (not currentSkill or currentSkill == 0) then
-				db.professions[cd.profID] = cd.minSkill or 300
-			end
-			
-			-- Save the valid expiration integer to the database profile path
-			if expiry and (expiry > time() or expiry == 0) then
-				db.profCooldowns[cd.key] = expiry
+			if (expiry and type(expiry) == "number" and expiry > time()) or (currentSkill >= (cd.minSkill or 0)) then
+				
+				-- Safety reconstruction fallback
+				if expiry and type(expiry) == "number" and expiry > time() and currentSkill == 0 then
+					db.professions[cd.profID] = cd.minSkill or 300
+				end
+				
+				-- Save only verified timestamps
+				if expiry and (expiry > time() or expiry == 0) then
+					db.profCooldowns[cd.key] = expiry
+				end
 			end
 		end
 	end
 end
+
 
 ------------------------------------------------------------------------
 -- Lifecycle
