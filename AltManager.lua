@@ -178,6 +178,20 @@ local columnOrder = { "Ony25", "MC25", "Sili", "BG" }
 ------------------------------------------------------------------------
 local DAILY_RESET_HOUR = 8
 
+-- Returns the correct character database profile.
+-- If a charKey is provided, it returns that specific alt's data.
+-- If no charKey is provided, it safely defaults to the currently logged-in character.
+local function GetCharProfile(charKey)
+	local target = charKey or me
+	if not AltManager.db.global[target] then
+		AltManager.db.global[target] = {
+			profCooldowns = {},
+			professions   = {},
+		}
+	end
+	return AltManager.db.global[target]
+end
+
 local function SecondsUntilDailyReset()
 	local serverHour, serverMin = GetGameTime()
 	local secondsNow  = serverHour * 3600 + serverMin * 60
@@ -232,8 +246,8 @@ local function FormatCooldownExpiry(expiry)
 end
 
 local function GetDoneForAlt(charKey, taskKey)
-	local db = AltManager.db.global[charKey]
-	if not db or not db[taskKey] then return -1 end
+	local db = GetCharProfile(charKey)
+	if not db[taskKey] then return -1 end
 	return db[taskKey].done or -1
 end
 
@@ -589,21 +603,22 @@ function AltManager:SaveProfessions()
 end
 
 function AltManager:SaveProfCooldowns()
-	local db = self.db.global[me]
-	if not db.profCooldowns  then db.profCooldowns = {} end
-	if not db.professions    then db.professions   = {} end
+	local db = GetCharProfile() -- Safely defaults to 'me'
 	
 	for _, cd in ipairs(PROF_COOLDOWNS) do
+		local expiry = cd.checkFn()
 		-- Fetch the live cooldown status from the game client cache
 		local expiry = cd.checkFn()
 		
-		-- If a cooldown is actively running, or if the character is confirmed to have the profession, check it
-		if (expiry and expiry > time()) or db.professions[cd.profID] then
+		-- Explicitly verify we are mutating data for the active logged-in character profile
+		local currentSkill = db.professions[cd.profID]
+		
+		-- Only process tracking updates if the player actively knows this profession tier
+		if (expiry and expiry > time()) or (currentSkill and currentSkill >= (cd.minSkill or 0)) then
 			
-			-- Safety: If a cooldown is active but a loading screen lag wiped our professions table,
-			-- reconstruct the profession flag automatically so it doesn't break tracking columns.
-			if expiry and expiry > time() and not db.professions[cd.profID] then
-				db.professions[cd.profID] = true
+			-- Safety: Reconstruct broken database indices if loading screens caused a sync delay
+			if expiry and expiry > time() and (not currentSkill or currentSkill == 0) then
+				db.professions[cd.profID] = cd.minSkill or 300
 			end
 			
 			-- Save the valid expiration integer to the database profile path
