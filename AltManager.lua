@@ -507,10 +507,14 @@ local function BuildMainFrame()
 			local labelStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			labelStr:SetWidth(COL_LABEL_W - PAD - 4)
 			labelStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 2)
-			local localizedLabel = (pcall(function() return L[taskKey] end) and L[taskKey]) or taskKey
+			
+			-- Safe rawget localization lookup
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
 			labelStr:SetText("|cFFFFFFFF"..localizedLabel.."|r")
 			labelStr:SetJustifyH("CENTER")
 
+			-- Fixed to pass taskKey
 			local resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
 			local timerStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			timerStr:SetWidth(COL_LABEL_W - PAD - 4)
@@ -1105,63 +1109,84 @@ function AltManager:CreateMinimapIcon()
 	if not LDB then return end
 
 	local function BuildTooltip(tt)
-		local serverTime = GetServerUnixTime()
-		tt:AddLine("|cFFFFD700AltManager-Epoch|r")
-		tt:AddLine("|cFFAAAAAA"..(L.ClickToOpen or "Click to open").."|r")
-		tt:AddLine(" ")
+	local serverTime = GetServerUnixTime()
+	tt:AddLine("|cFFFFD700AltManager-Epoch|r")
+	tt:AddLine("|cFFAAAAAA"..(L.ClickToOpen or "Click to open").."|r")
+	tt:AddLine(" ")
 
-		local function ResetStr(taskKey)
-			return FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
-		end
+	local function ResetStr(taskKey)
+		return FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
+	end
 
-		tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
-		for _, taskKey in ipairs(columnOrder) do
-			if tasks[taskKey].type == "raid" then
-				local done = GetDoneForAlt(me, taskKey)
-				local r,g,b = DoneColor(done)
-				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-			end
+	-- 1. Raid Lockouts & 5-Day Resets
+	tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "raid" or tasks[taskKey].type == "fiveday" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			-- Safe translation lookup
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
 		end
-		tt:AddLine(" ")
-		tt:AddLine("|cFFFFFFFFWeekly Objectives|r")
-		for _, taskKey in ipairs(columnOrder) do
-			if tasks[taskKey].type == "weekly" then
-				local done = GetDoneForAlt(me, taskKey)
-				local r,g,b = DoneColor(done)
-				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-			end
+	end
+	tt:AddLine(" ")
+	
+	-- 2. Weekly Objectives
+	tt:AddLine("|cFFFFFFFFWeekly Objectives|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "weekly" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			-- Safe translation lookup
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
 		end
-		tt:AddLine(" ")
-		tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
-		for _, taskKey in ipairs(columnOrder) do
-			if tasks[taskKey].type == "job" or tasks[taskKey].type == "misc" then
-				local done = GetDoneForAlt(me, taskKey)
-				local r,g,b = DoneColor(done)
-				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
-			end
+	end
+	tt:AddLine(" ")
+	
+	-- 3. Daily Objectives (Updated to check for "daily" type)
+	tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
+	for _, taskKey in ipairs(columnOrder) do
+		if tasks[taskKey].type == "daily" then
+			local done = GetDoneForAlt(me, taskKey)
+			local r,g,b = DoneColor(done)
+			
+			-- Safe translation lookup
+			local rawLocale = rawget(L, taskKey)
+			local localizedLabel = rawLocale or taskKey
+			
+			tt:AddDoubleLine(localizedLabel, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
 		end
+	end
 
-		local db = GetCharProfile()
-		if db and db.professions then
-			local hasAny = false
+	-- 4. Profession Cooldowns
+	local db = GetCharProfile()
+	if db and db.professions then
+		local hasAny = false
+		for _, cd in ipairs(PROF_COOLDOWNS) do
+			if db.professions[cd.profID] then hasAny = true break end
+		end
+		if hasAny then
+			tt:AddLine(" ")
+			tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
 			for _, cd in ipairs(PROF_COOLDOWNS) do
-				if db.professions[cd.profID] then hasAny = true break end
-			end
-			if hasAny then
-				tt:AddLine(" ")
-				tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
-				for _, cd in ipairs(PROF_COOLDOWNS) do
-					if db.professions[cd.profID] then
-						local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
-						local cdStr   = FormatCooldownExpiry(expiry)
-						local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
-						local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
-						tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
-					end
+				if db.professions[cd.profID] then
+					local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
+					local cdStr   = FormatCooldownExpiry(expiry)
+					local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
+					local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
+					tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
 				end
 			end
 		end
 	end
+end
 
 	local AltManagerLDB = LDB:NewDataObject("AltManager", {
 		type = "launcher",
