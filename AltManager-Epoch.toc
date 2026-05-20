@@ -1,7 +1,7 @@
 ﻿## Interface: 30300
 ## Title: AltManager-Epoch
 ## Author: Zergrael
-## Version: 1.1.0
+## Version: 0.1
 ## Notes: Tracks raid IDs and dailies for your alts on Epoch
 
 ## eMail: zergrael@gmail.com
