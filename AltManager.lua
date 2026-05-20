@@ -1079,7 +1079,7 @@ function AltManager:Options()
 					if val then LDBIcon:Hide("AltManager") else LDBIcon:Show("AltManager") end
 				end,
 				order = 1,
-			}
-		}
-	end
+			},
+		},
+	}
 end
