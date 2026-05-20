@@ -1,7 +1,7 @@
 ﻿## Interface: 30300
 ## Title: AltManager-Epoch
 ## Author: Zae
-## Version: 0.4
+## Version: 0.5
 ## Notes: Tracks raid IDs and dailies for your alts on Epoch
 
 ## DefaultState: Enabled
