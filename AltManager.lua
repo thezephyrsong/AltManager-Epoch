@@ -213,7 +213,11 @@ end
 local function FormatCooldownExpiry(expiry)
 	if not expiry or expiry == 0 then return L.CDReady end
 	local secs = expiry - time()
+	
+	-- Safety Gate: If clock drifts cause minor negative values but 
+	-- the character file hasn't been refreshed yet, treat it as ready.
 	if secs <= 0 then return L.CDReady end
+	
 	local h = math.floor(secs / 3600)
 	local m = math.floor((secs % 3600) / 60)
 	if h >= 24 then
@@ -747,10 +751,14 @@ function AltManager:SetZero(task)
 	if self.db.global[me][task].done == -1 then self.db.global[me][task].done = 0 end
 end
 
-function AltManager:GetStatus(task)
-	if tasks[task] then return tasks[task].done end
+function AltManager:GetStatus(task, charKey)
+	local targetChar = charKey or me
+	local db = self.db.global[targetChar]
+	if db and db[task] then 
+		return db[task].done or -1 
+	end
+	return -1
 end
-
 ------------------------------------------------------------------------
 -- Checking functions
 ------------------------------------------------------------------------
@@ -857,16 +865,14 @@ end
 function AltManager:LoadSV()
 	if self.db.char then wipe(self.db.char) end
 	if self.db.global then
-		for k1,v1 in pairs(self.db.global) do
-			if k1 ~= "LastReset" then -- Ignore top-level environment configuration settings
-				for k2,v2 in pairs(v1) do
-					-- SKIP non-task data tables added for character profile tracking
+		for k1, v1 in pairs(self.db.global) do
+			if k1 ~= "LastReset" then
+				for k2, v2 in pairs(v1) do
+					-- Explicitly bypass custom layout metrics tables
 					if k2 ~= "profCooldowns" and k2 ~= "professions" and type(v2) == "table" then
-						local dbDone, dbReset
-						for k3,v3 in pairs(v2) do
-							if k3 == "done"  then dbDone  = v3 end
-							if k3 == "reset" then dbReset = v3 end
-						end
+						local dbDone = v2.done
+						local dbReset = v2.reset
+						
 						if dbDone and dbDone == 2 then
 							if not dbReset then
 								if tasks[k2] and tasks[k2].isDaily then
@@ -875,10 +881,14 @@ function AltManager:LoadSV()
 									dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
 								end
 							end
-							if k1 == me then
-								if dbReset and dbReset < time() then self:SetDone(k2, 0) else self:SetDone(k2, 2, dbReset) end
-							else
-								if dbReset and dbReset < time() then self.db.global[k1][k2].done = 0 end
+							
+							-- CRITICAL: Ensure local modifications are completely character isolated
+							if dbReset and dbReset < time() then 
+								if k1 == me then
+									self:SetDone(k2, 0) 
+								else
+									self.db.global[k1][k2].done = 0 
+								end
 							end
 						end
 					end
