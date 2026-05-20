@@ -12,17 +12,11 @@ local me = GetUnitName("Player").." - "..GetRealmName()
 -- Timezone-Safe Server Time Helper
 ------------------------------------------------------------------------
 local function GetServerUnixTime()
-	-- Get local date components to extract current Year, Month, and Day
 	local dt = date("*t")
-	
-	-- Fetch the exact current server clock hour and minute
 	local sHour, sMin = GetGameTime()
-	
-	-- Construct a unified server time structure
 	dt.hour = sHour
 	dt.min = sMin
-	dt.sec = 0 -- Server clock doesn't expose seconds, 0 is safe and consistent
-	
+	dt.sec = 0
 	return time(dt)
 end
 
@@ -35,7 +29,7 @@ local PROF_COOLDOWNS = {
 		key      = "SaltShaker",
 		cdSlot   = "3day",
 		profID   = 165,  -- Leatherworking
-		minSkill = 250,
+		minSkill = 250,  
 		levelReq = 50,
 		itemID   = 15846,
 		icon     = "Interface\\Icons\\inv_egg_05",
@@ -55,7 +49,7 @@ local PROF_COOLDOWNS = {
 		key      = "Transmute",
 		cdSlot   = "3day",
 		profID   = 171,  -- Alchemy
-		minSkill = 275,
+		minSkill = 275,  
 		levelReq = 50,
 		spellID  = 17187,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
@@ -73,7 +67,7 @@ local PROF_COOLDOWNS = {
 		key      = "Mooncloth",
 		cdSlot   = "3day",
 		profID   = 197,  -- Tailoring
-		minSkill = 250,
+		minSkill = 250,  
 		levelReq = 50,
 		spellID  = 18560,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
@@ -87,12 +81,12 @@ local PROF_COOLDOWNS = {
 			return 0
 		end,
 	},
-	-- 7-day cooldowns (Project Epoch Endgame Custom Items)
+	-- 7-day cooldowns (Epoch custom items)
 	{
 		key      = "MasterworkSalt",
 		cdSlot   = "7day",
-		profID   = 165,  -- Leatherworking
-		minSkill = 300,
+		profID   = 165,  
+		minSkill = 300,  
 		levelReq = 60,
 		itemID   = 60571,
 		icon     = "Interface\\Icons\\inv_misc_enggizmos_40",
@@ -111,8 +105,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "CrystalLattice",
 		cdSlot   = "7day",
-		profID   = 171,  -- Alchemy
-		minSkill = 300,
+		profID   = 171,  
+		minSkill = 300,  
 		levelReq = 60,
 		itemID   = 60686,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
@@ -131,8 +125,8 @@ local PROF_COOLDOWNS = {
 	{
 		key      = "SignetMoonlit",
 		cdSlot   = "7day",
-		profID   = 197,  -- Tailoring
-		minSkill = 300,
+		profID   = 197,  
+		minSkill = 300,  
 		levelReq = 60,
 		itemID   = 60603,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
@@ -187,7 +181,7 @@ local WORLD_BOSS_ZONES = { ["Blasted Lands"] = true, ["Burning Steppes"] = true 
 local columnOrder = { "Ony25", "MC25", "Sili", "BG" }
 
 ------------------------------------------------------------------------
--- Helpers & Core Data Manager
+-- Helpers & Data Scope Isolation Manager
 ------------------------------------------------------------------------
 local DAILY_RESET_HOUR = 8
 
@@ -852,6 +846,7 @@ end
 ------------------------------------------------------------------------
 function AltManager:CheckLevel()
 	local lv = UnitLevel("player")
+	
 	if lv < 10 then 
 		self:SetDone("BG", -1) 
 	elseif self:GetStatus("BG") == -1 then
@@ -862,6 +857,15 @@ function AltManager:CheckLevel()
 		self:SetDone("Sili", -1) 
 	elseif self:GetStatus("Sili") == -1 then
 		self:SetDone("Sili", 0) 
+	end
+
+	-- Initialize Raid Tracker matrices for eligible characters
+	if lv < 60 then
+		self:SetDone("Ony25", -1)
+		self:SetDone("MC25", -1)
+	else
+		if self:GetStatus("Ony25") == -1 then self:SetDone("Ony25", 0) end
+		if self:GetStatus("MC25") == -1 then self:SetDone("MC25", 0) end
 	end
 end
 
@@ -879,20 +883,29 @@ function AltManager:GetWeeklyReset()
 end
 
 function AltManager:CheckIDs()
+	local lv = UnitLevel("player")
 	for k, v in pairs(tasks) do
-		if v.tipe == "raid" and self:GetStatus(k) ~= -1 then
-			self:SetDone(k, 0)
+		if v.tipe == "raid" then
+			if lv >= (v.levelRequire or 60) then
+				if self:GetStatus(k) == -1 then self:SetDone(k, 0) end
+			else
+				self:SetDone(k, -1)
+			end
 		end
 	end
 
 	local numInstances = GetNumSavedInstances()
 	for i = 1, numInstances do
-		local name, _, reset, _, locked, extended, _, isRaid, maxPlayers = GetSavedInstanceInfo(i)
-		if isRaid and (locked or extended) then
-			name = name.." "..maxPlayers
+		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
+		if isRaid and (locked or extended) and name then
+			-- Look through tasks array definitions
 			for k, v in pairs(tasks) do
-				if v.tipe == "raid" and name == L[k] then
-					self:SetDone(k, 2, reset)
+				if v.tipe == "raid" then
+					-- Fuzzy name pattern lookup loop (Handles custom server text strings safely)
+					local matchPattern = k == "Ony25" and "onyxia" or "molten core"
+					if string.find(string.lower(name), matchPattern, 1, true) then
+						self:SetDone(k, 2, reset)
+					end
 				end
 			end
 		end
