@@ -592,11 +592,21 @@ function AltManager:SaveProfCooldowns()
 	local db = self.db.global[me]
 	if not db.profCooldowns  then db.profCooldowns = {} end
 	if not db.professions    then db.professions   = {} end
+	
 	for _, cd in ipairs(PROF_COOLDOWNS) do
-		local currentSkill = db.professions[cd.profID] or 0
-		-- Only check and overwrite a cooldown if the current character meets the skill level requirement
-		if currentSkill >= (cd.minSkill or 0) then
-			local expiry = cd.checkFn()
+		-- Fetch the live cooldown status from the game client cache
+		local expiry = cd.checkFn()
+		
+		-- If a cooldown is actively running, or if the character is confirmed to have the profession, check it
+		if (expiry and expiry > time()) or db.professions[cd.profID] then
+			
+			-- Safety: If a cooldown is active but a loading screen lag wiped our professions table,
+			-- reconstruct the profession flag automatically so it doesn't break tracking columns.
+			if expiry and expiry > time() and not db.professions[cd.profID] then
+				db.professions[cd.profID] = true
+			end
+			
+			-- Save the valid expiration integer to the database profile path
 			if expiry and (expiry > time() or expiry == 0) then
 				db.profCooldowns[cd.key] = expiry
 			end
