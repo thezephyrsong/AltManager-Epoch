@@ -55,7 +55,6 @@ local PROF_COOLDOWNS = {
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Transmute",
 		checkFn  = function()
-			-- Safety: If the client spellbook API isn't tracking the spell name yet, flag it as UNCACHED
 			local name = GetSpellInfo(17187)
 			if not name or name == "" then return "UNCACHED" end
 
@@ -64,7 +63,6 @@ local PROF_COOLDOWNS = {
 				local remaining = (start + duration) - GetTime()
 				return GetServerUnixTime() + remaining
 			elseif (not start or start == 0) and (not duration or duration == 0) then
-				-- If the client returns a flat 0 right at loading screen, check if spellbook is fully synced
 				if not AltManager.spellbookLoaded then return "UNCACHED" end
 			end
 			return 0
@@ -188,8 +186,6 @@ local tasks = {
 }
 
 local questsList = { Sili = { 27390, 27391, 27392, 27393, 27394, 27395 } }
-local BG_CURRENCY_ID   = 90533
-local bgCurrencySnapshot = 0
 local WORLD_BOSS_ZONES = { ["Blasted Lands"] = true, ["Burning Steppes"] = true }
 local columnOrder = { "Ony25", "MC25", "Sili", "BG" }
 
@@ -400,7 +396,6 @@ local function BuildMainFrame()
 		local db = GetCharProfile(charKey)
 		local nameColor = "|cFFFFFFFF" 
 
-		-- Apply class-colored names dynamically using the global RAID_CLASS_COLORS dictionary
 		if db and db.Class and RAID_CLASS_COLORS[db.Class] then
 			local colorObj = RAID_CLASS_COLORS[db.Class]
 			nameColor = string.format("|cff%02x%02x%02x", colorObj.r * 255, colorObj.g * 255, colorObj.b * 255)
@@ -718,12 +713,12 @@ function AltManager:OnEnable()
 	self:RegisterEvent("PLAYER_LOGOUT",        "OnLogout")
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "CheckIDs")
 	self:RegisterEvent("SKILL_LINES_CHANGED",   "SaveProfessions")
-	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE","CheckBGCurrency")
 	self:RegisterEvent("SPELL_UPDATE_COOLDOWN", "OnCooldownUpdate")
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN",   "OnCooldownUpdate")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScanQuestLog")
 	
-	-- Hook spellbook synchronization logs to safely unlock spell tracking states
+	self:RegisterEvent("CHAT_MSG_LOOT", "ParseConquestLoot")
+	
 	self:RegisterEvent("SPELLS_CHANGED", function()
 		AltManager.spellbookLoaded = true
 		AltManager:SaveProfCooldowns()
@@ -756,13 +751,6 @@ function AltManager:Loading()
 		AltManager:SaveProfCooldowns()
 	end, 5)
 
-	if GetCurrencyInfo then
-		local _, _, qty = GetCurrencyInfo(BG_CURRENCY_ID)
-		bgCurrencySnapshot = qty or 0
-	else
-		bgCurrencySnapshot = 0
-	end
-
 	self:ScheduleTimer("LoadSV", GetQuestResetTime()+60)
 	AMConfig:RegisterOptionsTable("AltManager", AltManager:Options())
 	AMConfigDialog:AddToBlizOptions("AltManager", "AltManager-Epoch")
@@ -772,6 +760,36 @@ end
 
 function AltManager:OnCooldownUpdate()
 	self:SaveProfCooldowns()
+end
+
+------------------------------------------------------------------------
+-- Project Epoch Currency Tab Scan & Loot Interceptor
+------------------------------------------------------------------------
+function AltManager:ScanConquestTab()
+	if not GetCurrencyListSize then return end
+	
+	for i = 1, GetCurrencyListSize() do
+		local name, isHeader, _, _, _, count = GetCurrencyListInfo(i)
+		if not isHeader and name and string.find(string.lower(name), "conquest") then
+			if count and count > 0 then
+				self:SetDone("BG", 2, GetQuestResetTime())
+			end
+			break
+		end
+	end
+end
+
+function AltManager:ParseConquestLoot(event, message)
+	if not message or self:GetStatus("BG") ~= 0 then return end
+	
+	if string.find(message, "Season's Conquest Earned") then
+		local inBG = UnitInBattleground("player") or (GetNumBattlefieldScores() > 0)
+		local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
+		
+		if inBG and not inBossZone then
+			self:ScheduleTimer("ScanConquestTab", 0.5)
+		end
+	end
 end
 
 ------------------------------------------------------------------------
@@ -860,13 +878,6 @@ function AltManager:SetDone(task, number, reset)
 	end
 end
 
-function AltManager:SetZero(task)
-	tasks[task].done = 0
-	local db = GetCharProfile()
-	if not db[task] then db[task] = {} end
-	if db[task].done == -1 then db[task].done = 0 end
-end
-
 function AltManager:GetStatus(task, charKey)
 	local db = GetCharProfile(charKey)
 	if db and db[task] then 
@@ -939,29 +950,6 @@ function AltManager:CheckIDs()
 					end
 				end
 			end
-		end
-	end
-end
-
-function AltManager:CheckBGCurrency()
-	if self:GetStatus("BG") == 0 then
-		if not GetCurrencyInfo then return end
-		local _, _, quantity = GetCurrencyInfo(BG_CURRENCY_ID)
-		quantity = quantity or 0
-
-		if bgCurrencySnapshot > 0 and quantity > bgCurrencySnapshot then
-			local inBG       = UnitInBattleground("player")
-			local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
-			
-			if inBG and not inBossZone then
-				self:SetDone("BG", 2, GetQuestResetTime())
-			end
-		end
-		bgCurrencySnapshot = quantity
-	else
-		if GetCurrencyInfo then
-			local _, _, quantity = GetCurrencyInfo(BG_CURRENCY_ID)
-			bgCurrencySnapshot = quantity or 0
 		end
 	end
 end
