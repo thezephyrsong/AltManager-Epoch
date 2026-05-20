@@ -35,20 +35,24 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: Build zip
+      - - name: Build zip
         run: |
-          # Create a separate build staging folder outside our repository directory tree
+          # 1. Grab the absolute path of your current repo folder before changing directories
+          REPO_ROOT=$(pwd)
+          
+          # 2. Create an isolated staging directory completely outside the repo
           mkdir -p ../staging/AltManager-Epoch
           
-          # Copy everything cleanly to the safe staging environment folder
+          # 3. Cleanly sync file components to the staging environment
           rsync -av --exclude='.git' --exclude='.github' --exclude='.gitignore' \
             --exclude='.gitattributes' --exclude='.pkgmeta' --exclude='SoftRes' \
             . ../staging/AltManager-Epoch/
             
-          # Compress the folder from the safe staging root so the zip folder extracts clean
+          # 4. Jump to the staging directory to zip it up
           cd ../staging
-          zip -r ../workspace/AltManager-Epoch.zip AltManager-Epoch/
-          cd ../workspace
+          
+          # 5. Save the output directly back into your original repo root path
+          zip -r "$REPO_ROOT/AltManager-Epoch.zip" AltManager-Epoch/
 
       - name: Create Versioned GitHub Release
         uses: softprops/action-gh-release@v2
