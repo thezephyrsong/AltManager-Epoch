@@ -9,7 +9,16 @@ local quixote = LibStub("LibQuixote-2.0")
 local me = GetUnitName("Player").." - "..GetRealmName()
 
 ------------------------------------------------------------------------
--- Timezone-Safe Server Time Helper
+-- Static Server Reset Definitions (Defaulting to Oceanic: Thursday 8AM)
+------------------------------------------------------------------------
+-- Days: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
+local WEEKLY_RESET_DAY  = 2  -- Tuesday
+local WEEKLY_RESET_HOUR = 8  -- 8:00 AM
+local DAILY_RESET_HOUR  = 8  -- 8:00 AM
+local ONY_RESET_CYCLE   = 5 * 86400 -- 5 days in seconds
+
+------------------------------------------------------------------------
+-- Timezone-Safe Server Time Helpers
 ------------------------------------------------------------------------
 local function GetServerUnixTime()
 	local dt = date("*t")
@@ -18,6 +27,69 @@ local function GetServerUnixTime()
 	dt.min = sMin
 	dt.sec = 0
 	return time(dt)
+end
+
+local function SecondsUntilWeeklyResetFallback()
+	local serverTime = GetServerUnixTime()
+	local dt = date("*t", serverTime)
+	
+	-- Calculate seconds passed since the start of today
+	local secondsToday = dt.hour * 3600 + dt.min * 60 + dt.sec
+	local resetSecondsToday = WEEKLY_RESET_HOUR * 3600
+	
+	-- Find out how many days away the target weekly reset day is
+	local daysDistance = WEEKLY_RESET_DAY - dt.wday
+	if daysDistance < 0 or (daysDistance == 0 and secondsToday >= resetSecondsToday) then
+		daysDistance = daysDistance + 7
+	end
+	
+	local totalSecondsLeft = (daysDistance * 86400) + (resetSecondsToday - secondsToday)
+	return totalSecondsLeft
+end
+
+local function SecondsUntilDailyReset()
+	local serverHour, serverMin = GetGameTime()
+	local secondsNow  = serverHour * 3600 + serverMin * 60
+	local resetSeconds = DAILY_RESET_HOUR * 3600
+	local diff = resetSeconds - secondsNow
+	if diff <= 0 then diff = diff + 86400 end
+	return diff
+end
+
+local function FormatTimeUntil(resetTimestamp, taskType)
+	local secs
+	if taskType == "daily" then
+		secs = SecondsUntilDailyReset()
+	elseif taskType == "ony" then
+		if not resetTimestamp or resetTimestamp == 0 then
+			-- Fixed anchor: Tuesday, May 19, 2026 8:00 AM (Adjust Unix timestamp if server anchor varies)
+			local anchorTime = 1779225600 
+			local serverTime = GetServerUnixTime()
+			secs = ONY_RESET_CYCLE - ((serverTime - anchorTime) % ONY_RESET_CYCLE)
+		else
+			secs = resetTimestamp - GetServerUnixTime()
+		end
+	else
+		if not resetTimestamp or resetTimestamp == 0 then
+			secs = SecondsUntilWeeklyResetFallback()
+		else
+			secs = resetTimestamp - GetServerUnixTime()
+		end
+	end
+	
+	if secs <= 0 then return L.ResetDue or "Reset Due" end
+	
+	local h = math.floor(secs / 3600)
+	local m = math.floor((secs % 3600) / 60)
+	if h >= 24 then
+		local d = math.floor(h / 24)
+		h = h % 24
+		return string.format("%dd %dh", d, h)
+	elseif h > 0 then
+		return string.format("%dh %dm", h, m)
+	else
+		return string.format("%dm", m)
+	end
 end
 
 ------------------------------------------------------------------------
@@ -171,6 +243,8 @@ local DBDefault = {
 			BG    = { done = -1, handle = true },
 			Ony25 = { done = -1, handle = true },
 			MC25  = { done = -1, handle = true },
+			WSG   = { done = -1, handle = true },
+			Gilli = { done = -1, handle = true },
 			profCooldowns = {},
 			professions   = {},
 		}
@@ -179,21 +253,26 @@ local DBDefault = {
 
 local listChars = {}
 local tasks = {
-	Ony25 = { done = -1, tipe = "raid", isDaily = false, levelRequire = 60 },
-	MC25  = { done = -1, tipe = "raid", isDaily = false, levelRequire = 60 },
-	BG    = { done = -1, tipe = "misc", isDaily = true,  levelRequire = 10 },
-	Sili  = { done = -1, tipe = "job",  isDaily = true,  levelRequire = 54 },
+	Ony25 = { done = -1, type = "ony",   	isDaily = false, levelRequire = 60 },
+	MC25  = { done = -1, type = "raid",   	isDaily = false, levelRequire = 60 },
+	WSG   = { done = -1, type = "weekly", 	isDaily = false, levelRequire = 60 },
+	Gilli = { done = -1, type = "weekly", 	isDaily = false, levelRequire = 60 },
+	BG    = { done = -1, type = "misc",  	isDaily = true,  levelRequire = 10 },
+	Sili  = { done = -1, type = "job",   	isDaily = true,  levelRequire = 54 },
 }
 
-local questsList = { Sili = { 27390, 27391, 27392, 27393, 27394, 27395 } }
+local questsList = { 
+	Sili  = { 27390, 27391, 27392, 27393, 27394, 27395 },
+	WSG   = { 27880, 27881, 27882, 27883 }, 
+	Gilli = { 31042, 31043, 31044, 31045 }, 
+}
+
 local WORLD_BOSS_ZONES = { ["Blasted Lands"] = true, ["Burning Steppes"] = true }
-local columnOrder = { "Ony25", "MC25", "Sili", "BG" }
+local columnOrder = { "Ony25", "MC25", "WSG", "Gilli", "Sili", "BG" }
 
 ------------------------------------------------------------------------
 -- Helpers & Data Scope Isolation Manager
 ------------------------------------------------------------------------
-local DAILY_RESET_HOUR = 8
-
 local function GetCharProfile(charKey)
 	local target = charKey or me
 	if not AltManager.db.global[target] then
@@ -204,38 +283,6 @@ local function GetCharProfile(charKey)
 		}
 	end
 	return AltManager.db.global[target]
-end
-
-local function SecondsUntilDailyReset()
-	local serverHour, serverMin = GetGameTime()
-	local secondsNow  = serverHour * 3600 + serverMin * 60
-	local resetSeconds = DAILY_RESET_HOUR * 3600
-	local diff = resetSeconds - secondsNow
-	if diff <= 0 then diff = diff + 86400 end
-	return diff
-end
-
-local function FormatTimeUntil(resetTimestamp, isDaily)
-	local secs
-	if isDaily then
-		secs = SecondsUntilDailyReset()
-	else
-		if not resetTimestamp then return "?" end
-		secs = resetTimestamp - GetServerUnixTime()
-		if secs <= 0 then return L.ResetDue end
-	end
-	if secs <= 0 then return L.ResetDue end
-	local h = math.floor(secs / 3600)
-	local m = math.floor((secs % 3600) / 60)
-	if h >= 24 then
-		local d = math.floor(h / 24)
-		h = h % 24
-		return string.format("%dd %dh", d, h)
-	elseif h > 0 then
-		return string.format("%dh %dm", h, m)
-	else
-		return string.format("%dm", m)
-	end
 end
 
 local function FormatCooldownExpiry(expiry)
@@ -453,7 +500,7 @@ local function BuildMainFrame()
 			labelStr:SetText("|cFFFFFFFF"..(L[taskKey] or taskKey).."|r")
 			labelStr:SetJustifyH("CENTER")
 
-			local resetStr = tasks[taskKey].isDaily and FormatTimeUntil(nil, true) or FormatTimeUntil(GetResetForAlt(me, taskKey), false)
+			local resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), tasks[taskKey].type)
 			local timerStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			timerStr:SetWidth(COL_LABEL_W - PAD - 4)
 			timerStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 16)
@@ -717,7 +764,7 @@ function AltManager:OnEnable()
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN",   "OnCooldownUpdate")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScanQuestLog")
 	
-	self:RegisterEvent("CHAT_MSG_LOOT", "ParseConquestLoot")
+	self:RegisterEvent("UPDATE_BATTLEFIELD_STATUS", "CheckBattlegroundWin")
 	
 	self:RegisterEvent("SPELLS_CHANGED", function()
 		AltManager.spellbookLoaded = true
@@ -763,31 +810,32 @@ function AltManager:OnCooldownUpdate()
 end
 
 ------------------------------------------------------------------------
--- Project Epoch Currency Tab Scan & Loot Interceptor
+-- Simplified Project Epoch Battleground Tracking Parser
 ------------------------------------------------------------------------
-function AltManager:ScanConquestTab()
-	if not GetCurrencyListSize then return end
-	
-	for i = 1, GetCurrencyListSize() do
-		local name, isHeader, _, _, _, count = GetCurrencyListInfo(i)
-		if not isHeader and name and string.find(string.lower(name), "conquest") then
-			if count and count > 0 then
-				self:SetDone("BG", 2, GetQuestResetTime())
-			end
-			break
-		end
-	end
-end
+function AltManager:CheckBattlegroundWin()
+	if self:GetStatus("BG") == 2 then return end
 
-function AltManager:ParseConquestLoot(event, message)
-	if not message or self:GetStatus("BG") ~= 0 then return end
-	
-	if string.find(message, "Season's Conquest Earned") then
-		local inBG = UnitInBattleground("player") or (GetNumBattlefieldScores() > 0)
-		local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
-		
-		if inBG and not inBossZone then
-			self:ScheduleTimer("ScanConquestTab", 0.5)
+	for i = 1, MAX_BATTLEFIELD_QUEUES do
+		local status, _, _, _, _, _, _, _, _, _, _, _, winner = GetBattlefieldStatus(i)
+		if status == "active" then
+			local playerFaction = OurFaction or GetGuildFactionGroup or UnitFactionGroup("player")
+			local winnerFaction = GetBattlefieldWinner()
+			
+			if winnerFaction ~= nil then
+				local isWin = false
+				if playerFaction == "Alliance" and winnerFaction == 0 then
+					isWin = true
+				elseif playerFaction == "Horde" and winnerFaction == 1 then
+					isWin = true
+				end
+				
+				if isWin then
+					local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
+					if not inBossZone then
+						self:SetDone("BG", 2, GetQuestResetTime())
+					end
+				end
+			end
 		end
 	end
 end
@@ -834,27 +882,28 @@ end
 -- Quest Callbacks
 ------------------------------------------------------------------------
 function AltManager:Quest_Abandoned(event, name, uid)
-	for tipe,_ in pairs(questsList) do
-		for k,id in pairs(questsList[tipe]) do
-			if uid == id then self:SetDone(tipe, 0) end
+	for type,_ in pairs(questsList) do
+		for k,id in pairs(questsList[type]) do
+			if uid == id then self:SetDone(type, 0) end
 		end
 	end
 end
 
 function AltManager:Quest_Gained(event, name, uid)
-	for tipe,_ in pairs(questsList) do
-		for k,id in pairs(questsList[tipe]) do
-			if uid == id then self:SetDone(tipe, 1) end
+	for type,_ in pairs(questsList) do
+		for k,id in pairs(questsList[type]) do
+			if uid == id then self:SetDone(type, 1) end
 		end
 	end
 end
 
 function AltManager:Quest_Lost(event, name, uid)
-	for tipe,_ in pairs(questsList) do
-		for k,id in pairs(questsList[tipe]) do
+	for type,_ in pairs(questsList) do
+		for k,id in pairs(questsList[type]) do
 			if uid == id then
-				if self:GetStatus(tipe) == 1 then
-					self:SetDone(tipe, 2, GetQuestResetTime())
+				if self:GetStatus(type) == 1 then
+					local weeklyReset = tasks[type].type == "weekly" and GetCharProfile().LastReset and GetCharProfile().LastReset.reset
+					self:SetDone(type, 2, weeklyReset or GetQuestResetTime() or SecondsUntilWeeklyResetFallback())
 				end
 			end
 		end
@@ -907,9 +956,13 @@ function AltManager:CheckLevel()
 	if lv < 60 then
 		self:SetDone("Ony25", -1)
 		self:SetDone("MC25", -1)
+		self:SetDone("WSG", -1)
+		self:SetDone("Gilli", -1)
 	else
 		if self:GetStatus("Ony25") == -1 then self:SetDone("Ony25", 0) end
 		if self:GetStatus("MC25") == -1 then self:SetDone("MC25", 0) end
+		if self:GetStatus("WSG") == -1 then self:SetDone("WSG", 0) end
+		if self:GetStatus("Gilli") == -1 then self:SetDone("Gilli", 0) end
 	end
 end
 
@@ -924,12 +977,22 @@ function AltManager:GetWeeklyReset()
 			db.LastReset.reset = reset
 		end
 	end
+	
+	-- Assign our calculated lock limits safely onto completed milestones
+	local targetReset = db.LastReset.reset or (GetServerUnixTime() + SecondsUntilWeeklyResetFallback())
+	
+	if self:GetStatus("WSG") == 2 and not GetResetForAlt(me, "WSG") then
+		db["WSG"].reset = targetReset
+	end
+	if self:GetStatus("Gilli") == 2 and not GetResetForAlt(me, "Gilli") then
+		db["Gilli"].reset = targetReset
+	end
 end
 
 function AltManager:CheckIDs()
 	local lv = UnitLevel("player")
 	for k, v in pairs(tasks) do
-		if v.tipe == "raid" then
+		if v.type == "raid" then
 			if lv >= (v.levelRequire or 60) then
 				if self:GetStatus(k) == -1 then self:SetDone(k, 0) end
 			else
@@ -943,7 +1006,7 @@ function AltManager:CheckIDs()
 		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
 		if isRaid and (locked or extended) and name then
 			for k, v in pairs(tasks) do
-				if v.tipe == "raid" then
+				if v.type == "raid" then
 					local matchPattern = k == "Ony25" and "onyxia" or "molten core"
 					if string.find(string.lower(name), matchPattern, 1, true) then
 						self:SetDone(k, 2, reset)
@@ -987,11 +1050,17 @@ function AltManager:LoadSV()
 						local dbReset = v2.reset
 						
 						if dbDone and dbDone == 2 then
-							if not dbReset then
-								if tasks[k2] and tasks[k2].isDaily then
+							if not dbReset or dbReset == 0 then
+								if tasks[k2] and tasks[k2].type == "daily" then
 									dbReset = serverTime + SecondsUntilDailyReset()
+								elseif tasks[k2] and tasks[k2].type == "ony" then
+									local anchorTime = 1779225600
+									dbReset = serverTime + (ONY_RESET_CYCLE - ((serverTime - anchorTime) % ONY_RESET_CYCLE))
 								else
 									dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
+									if not dbReset or dbReset == 0 then
+										dbReset = serverTime + SecondsUntilWeeklyResetFallback()
+									end
 								end
 							end
 							
@@ -1000,6 +1069,7 @@ function AltManager:LoadSV()
 									self:SetDone(k2, 0) 
 								else
 									self.db.global[k1][k2].done = 0 
+									self.db.global[k1][k2].reset = nil
 								end
 							end
 						end
@@ -1023,16 +1093,21 @@ function AltManager:CreateMinimapIcon()
 		tt:AddLine(" ")
 
 		local function ResetStr(taskKey)
-			if tasks[taskKey].isDaily then
-				return FormatTimeUntil(nil, true)
-			else
-				return FormatTimeUntil(GetResetForAlt(me, taskKey), false)
-			end
+			return FormatTimeUntil(GetResetForAlt(me, taskKey), tasks[taskKey].type)
 		end
 
 		tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
 		for _, taskKey in ipairs(columnOrder) do
-			if tasks[taskKey].tipe == "raid" then
+			if tasks[taskKey].type == "raid" then
+				local done = GetDoneForAlt(me, taskKey)
+				local r,g,b = DoneColor(done)
+				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
+			end
+		end
+		tt:AddLine(" ")
+		tt:AddLine("|cFFFFFFFFWeekly Objectives|r")
+		for _, taskKey in ipairs(columnOrder) do
+			if tasks[taskKey].type == "weekly" then
 				local done = GetDoneForAlt(me, taskKey)
 				local r,g,b = DoneColor(done)
 				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
@@ -1041,7 +1116,7 @@ function AltManager:CreateMinimapIcon()
 		tt:AddLine(" ")
 		tt:AddLine("|cFFFFFFFF"..(L.DailyQuests or "Daily Objectives").."|r")
 		for _, taskKey in ipairs(columnOrder) do
-			if tasks[taskKey].tipe == "job" or tasks[taskKey].tipe == "misc" then
+			if tasks[taskKey].type == "job" or tasks[taskKey].type == "misc" then
 				local done = GetDoneForAlt(me, taskKey)
 				local r,g,b = DoneColor(done)
 				tt:AddDoubleLine(L[taskKey] or taskKey, DoneText(done).." |cFFAAAAAA("..ResetStr(taskKey)..")|r", 1,1,1, r,g,b)
