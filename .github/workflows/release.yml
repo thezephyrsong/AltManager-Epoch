@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Update Version in TOC and Push
+        run: |
+          # Configure Git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Replace the version line in the .toc file
+          sed -i "s/^## Version: .*/## Version: ${{ github.ref_name }}/g" AltManager-Epoch.toc
+          
+          # Check if there are changes to commit
+          if git diff --quiet AltManager-Epoch.toc; then
+            echo "No changes to TOC file"
+          else
+            git add AltManager-Epoch.toc
+            git commit -m "chore: update version to ${{ github.ref_name }} [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Build zip
+        run: |
+          # Create a separate build staging folder outside our repository directory tree
+          mkdir -p ../staging/AltManager-Epoch
+          
+          # Copy everything cleanly to the safe staging environment folder
+          rsync -av --exclude='.git' --exclude='.github' --exclude='.gitignore' \
+            --exclude='.gitattributes' --exclude='.pkgmeta' --exclude='SoftRes' \
+            . ../staging/AltManager-Epoch/
+            
+          # Compress the folder from the safe staging root so the zip folder extracts clean
+          cd ../staging
+          zip -r ../workspace/AltManager-Epoch.zip AltManager-Epoch/
+          cd ../workspace
+
+      - name: Create Versioned GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AltManager-Epoch.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Latest Tag
+        run: |
+          git tag -f latest
+          git push origin latest --force
+
+      - name: Update Latest GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AltManager-Epoch.zip
+          tag_name: latest
+          name: Latest Release
+          body: "This release always contains the most recent version (${{ github.ref_name }})."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
