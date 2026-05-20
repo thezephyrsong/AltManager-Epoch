@@ -17,11 +17,12 @@ local me = GetUnitName("Player").." - "..GetRealmName()
 -- icon: texture path shown in the cell
 ------------------------------------------------------------------------
 local PROF_COOLDOWNS = {
-	-- 3-day cooldowns (vanilla items/spells, Epoch may differ)
+	-- 3-day cooldowns
 	{
 		key      = "SaltShaker",
 		cdSlot   = "3day",
 		profID   = 165,  -- Leatherworking
+		minSkill = 250,  -- Required skill level
 		itemID   = 15846,
 		icon     = "Interface\\Icons\\inv_egg_05",
 		label    = "Salt Shaker",
@@ -29,7 +30,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(15846)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
@@ -38,6 +39,7 @@ local PROF_COOLDOWNS = {
 		key      = "Transmute",
 		cdSlot   = "3day",
 		profID   = 171,  -- Alchemy
+		minSkill = 275,  -- Required skill level (Arcanite requires 275)
 		spellID  = 17187,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Transmute",
@@ -45,7 +47,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetSpellCooldown(17187)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
@@ -54,6 +56,7 @@ local PROF_COOLDOWNS = {
 		key      = "Mooncloth",
 		cdSlot   = "3day",
 		profID   = 197,  -- Tailoring
+		minSkill = 250,  -- Required skill level
 		spellID  = 18560,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Mooncloth",
@@ -61,16 +64,17 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetSpellCooldown(18560)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
 	},
-	-- 7-day cooldowns (Epoch custom items)
+	-- 7-day cooldowns (Epoch custom items - usually requiring max skill)
 	{
 		key      = "MasterworkSalt",
 		cdSlot   = "7day",
 		profID   = 165,  -- Leatherworking
+		minSkill = 300,  -- Project Epoch endgame requirement
 		itemID   = 60603,
 		icon     = "Interface\\Icons\\inv_misc_enggizmos_40",
 		label    = "Masterwork Salt",
@@ -78,7 +82,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60603)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
@@ -87,6 +91,7 @@ local PROF_COOLDOWNS = {
 		key      = "CrystalLattice",
 		cdSlot   = "7day",
 		profID   = 171,  -- Alchemy
+		minSkill = 300,  -- Project Epoch endgame requirement
 		itemID   = 60686,
 		icon     = "Interface\\Icons\\INV_Misc_StoneTablet_05",
 		label    = "Crystal Lattice",
@@ -94,7 +99,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60686)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
@@ -103,6 +108,7 @@ local PROF_COOLDOWNS = {
 		key      = "SignetMoonlit",
 		cdSlot   = "7day",
 		profID   = 197,  -- Tailoring
+		minSkill = 300,  -- Project Epoch endgame requirement
 		itemID   = 60571,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Signet",
@@ -110,7 +116,7 @@ local PROF_COOLDOWNS = {
 			local start, duration = GetItemCooldown(60571)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
-				return time() + remaining  -- Converts to absolute unix timestamp
+				return time() + remaining
 			end
 			return 0
 		end,
@@ -240,8 +246,12 @@ local function GetProfCooldownsForAlt(charKey, cdSlot)
 	if not db or not db.professions then return {} end
 	local result = {}
 	for _, cd in ipairs(PROF_COOLDOWNS) do
-		if cd.cdSlot == cdSlot and db.professions[cd.profID] then
-			table.insert(result, cd)
+		if cd.cdSlot == cdSlot then
+			-- Check if the character has the profession AND meets the minimum level requirement
+			local currentSkill = db.professions[cd.profID] or 0
+			if currentSkill >= (cd.minSkill or 0) then
+				table.insert(result, cd)
+			end
 		end
 	end
 	return result
@@ -548,18 +558,29 @@ local PROF_SKILL_NAMES = {
 function AltManager:SaveProfessions()
 	local db = self.db.global[me]
 	if not db.professions then db.professions = {} end
-	-- GetSkillLineInfo returns: name, isHeader, isExpanded, skillRank, numTempPoints,
-	-- skillModifier, skillMaxRank, isAbandonable, stepCost, rankCost, minLevel, skillCostType
-	-- No numeric skillID — match by name instead
+
 	local numSkills = GetNumSkillLines()
+	if numSkills == 0 then return end -- Guard gate against loading screens
+
+	local tempProfessions = {}
+	local foundAny = false
+
 	for i = 1, numSkills do
-		local skillName, isHeader = GetSkillLineInfo(i)
+		-- skillRank is the 4th value returned by GetSkillLineInfo
+		local skillName, isHeader, _, skillRank = GetSkillLineInfo(i)
 		if not isHeader and skillName then
 			local profID = PROF_SKILL_NAMES[skillName]
 			if profID then
-				db.professions[profID] = true
+				-- Store the numeric skill level (e.g. 265) instead of just 'true'
+				tempProfessions[profID] = skillRank or 0
+				foundAny = true
 			end
 		end
+	end
+
+	if foundAny then
+		db.professions = tempProfessions
+		self:SaveProfCooldowns()
 	end
 end
 
@@ -568,9 +589,10 @@ function AltManager:SaveProfCooldowns()
 	if not db.profCooldowns  then db.profCooldowns = {} end
 	if not db.professions    then db.professions   = {} end
 	for _, cd in ipairs(PROF_COOLDOWNS) do
-		if db.professions[cd.profID] then
+		local currentSkill = db.professions[cd.profID] or 0
+		-- Only check and overwrite a cooldown if the current character meets the skill level requirement
+		if currentSkill >= (cd.minSkill or 0) then
 			local expiry = cd.checkFn()
-			-- Only overwrite if the new value is meaningful (non-zero) or clears an old one
 			if expiry and (expiry > time() or expiry == 0) then
 				db.profCooldowns[cd.key] = expiry
 			end
@@ -592,6 +614,7 @@ function AltManager:OnEnable()
 	self:GetWeeklyReset()
 	self:RegisterEvent("PLAYER_LOGOUT",        "OnLogout")
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", "CheckIDs")
+	self:RegisterEvent("SKILL_LINES_CHANGED",   "SaveProfessions")
 	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE","CheckBGCurrency")
 	-- SPELL_UPDATE_COOLDOWN fires when any spell CD changes — use to detect transmute/mooncloth use
 	self:RegisterEvent("SPELL_UPDATE_COOLDOWN", "OnCooldownUpdate")
