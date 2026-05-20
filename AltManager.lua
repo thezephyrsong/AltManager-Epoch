@@ -75,11 +75,11 @@ local PROF_COOLDOWNS = {
 		cdSlot   = "7day",
 		profID   = 165,  -- Leatherworking
 		minSkill = 300,  -- Project Epoch endgame requirement
-		itemID   = 60603,
+		itemID   = 60571,
 		icon     = "Interface\\Icons\\inv_misc_enggizmos_40",
 		label    = "Masterwork Salt",
 		checkFn  = function()
-			local start, duration = GetItemCooldown(60603)
+			local start, duration = GetItemCooldown(60571)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
@@ -109,11 +109,11 @@ local PROF_COOLDOWNS = {
 		cdSlot   = "7day",
 		profID   = 197,  -- Tailoring
 		minSkill = 300,  -- Project Epoch endgame requirement
-		itemID   = 60571,
+		itemID   = 60603,
 		icon     = "Interface\\Icons\\INV_Fabric_Moonrag_01",
 		label    = "Signet",
 		checkFn  = function()
-			local start, duration = GetItemCooldown(60571)
+			local start, duration = GetItemCooldown(60603)
 			if start and duration and duration > 0 then
 				local remaining = (start + duration) - GetTime()
 				return time() + remaining
