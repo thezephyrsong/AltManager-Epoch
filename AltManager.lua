@@ -9,13 +9,23 @@ local quixote = LibStub("LibQuixote-2.0")
 local me = GetUnitName("Player").." - "..GetRealmName()
 
 ------------------------------------------------------------------------
--- Static Server Reset Definitions (Defaulting to Oceanic: Thursday 8AM)
+-- Static Server Reset Definitions
 ------------------------------------------------------------------------
 -- Days: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
 local WEEKLY_RESET_DAY  = 2  -- Tuesday
 local WEEKLY_RESET_HOUR = 8  -- 8:00 AM
 local DAILY_RESET_HOUR  = 8  -- 8:00 AM
 local ONY_RESET_CYCLE   = 5 * 86400 -- 5 days in seconds
+
+local tasks = {
+	Ony25 = { done = -1, type = "fiveday", isDaily = false, levelRequire = 60 }, -- Custom 5-day
+	MC25  = { done = -1, type = "raid",    isDaily = false, levelRequire = 60 }, -- Standard weekly lockout
+	WSG   = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
+	Gilli = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
+	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 10 }, -- 24-Hour Daily Win
+	Sili  = { done = -1, type = "daily",   isDaily = true,  levelRequire = 54 }, -- 24-Hour Daily Quest
+}
+
 
 ------------------------------------------------------------------------
 -- Timezone-Safe Server Time Helpers
@@ -260,14 +270,6 @@ local DBDefault = {
 }
 
 local listChars = {}
-local tasks = {
-	Ony25 = { done = -1, type = "fiveday", isDaily = false, levelRequire = 60 }, -- Custom 5-day
-	MC25  = { done = -1, type = "raid",    isDaily = false, levelRequire = 60 }, -- Standard weekly lockout
-	WSG   = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
-	Gilli = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
-	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 10 }, -- 24-Hour Daily Win
-	Sili  = { done = -1, type = "daily",   isDaily = true,  levelRequire = 54 }, -- 24-Hour Daily Quest
-}
 
 local questsList = { 
 	Sili  = { 27390, 27391, 27392, 27393, 27394, 27395 },
