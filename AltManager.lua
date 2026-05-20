@@ -56,24 +56,32 @@ local function SecondsUntilDailyReset()
 	return diff
 end
 
-local function FormatTimeUntil(resetTimestamp, taskType)
+local function SecondsUntilFiveDayReset()
+	local serverTime = GetServerUnixTime()
+	-- Fixed Anchor: Tuesday, May 19, 2026 at 8:00 AM server time (Unix: 1779225600)
+	local anchorTime = 1779225600 
+	
+	local timePassed = serverTime - anchorTime
+	local remainder = timePassed % ONY_RESET_CYCLE
+	return ONY_RESET_CYCLE - remainder
+end
+
+local function FormatTimeUntil(resetTimestamp, taskKey)
 	local secs
-	if taskType == "daily" then
-		secs = SecondsUntilDailyReset()
-	elseif taskType == "ony" then
-		if not resetTimestamp or resetTimestamp == 0 then
-			-- Fixed anchor: Tuesday, May 19, 2026 8:00 AM (Adjust Unix timestamp if server anchor varies)
-			local anchorTime = 1779225600 
-			local serverTime = GetServerUnixTime()
-			secs = ONY_RESET_CYCLE - ((serverTime - anchorTime) % ONY_RESET_CYCLE)
-		else
-			secs = resetTimestamp - GetServerUnixTime()
-		end
+	local taskConfig = tasks[taskKey]
+	local taskType = taskConfig and taskConfig.type or "weekly"
+
+	-- 1. If we have a live active game client lock timestamp saved, always use it
+	if resetTimestamp and resetTimestamp > 0 then
+		secs = resetTimestamp - GetServerUnixTime()
 	else
-		if not resetTimestamp or resetTimestamp == 0 then
-			secs = SecondsUntilWeeklyResetFallback()
+		-- 2. Fall back to predictable calendar behaviors if no lock string exists
+		if taskType == "daily" then
+			secs = SecondsUntilDailyReset()
+		elseif taskType == "fiveday" then
+			secs = SecondsUntilFiveDayReset()
 		else
-			secs = resetTimestamp - GetServerUnixTime()
+			secs = SecondsUntilWeeklyResetFallback()
 		end
 	end
 	
@@ -253,12 +261,12 @@ local DBDefault = {
 
 local listChars = {}
 local tasks = {
-	Ony25 = { done = -1, type = "ony",   	isDaily = false, levelRequire = 60 },
-	MC25  = { done = -1, type = "raid",   	isDaily = false, levelRequire = 60 },
-	WSG   = { done = -1, type = "weekly", 	isDaily = false, levelRequire = 60 },
-	Gilli = { done = -1, type = "weekly", 	isDaily = false, levelRequire = 60 },
-	BG    = { done = -1, type = "misc",  	isDaily = true,  levelRequire = 10 },
-	Sili  = { done = -1, type = "job",   	isDaily = true,  levelRequire = 54 },
+	Ony25 = { done = -1, type = "fiveday", isDaily = false, levelRequire = 60 }, -- Custom 5-day
+	MC25  = { done = -1, type = "raid",    isDaily = false, levelRequire = 60 }, -- Standard weekly lockout
+	WSG   = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
+	Gilli = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
+	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 10 }, -- 24-Hour Daily Win
+	Sili  = { done = -1, type = "daily",   isDaily = true,  levelRequire = 54 }, -- 24-Hour Daily Quest
 }
 
 local questsList = { 
@@ -497,10 +505,11 @@ local function BuildMainFrame()
 			local labelStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			labelStr:SetWidth(COL_LABEL_W - PAD - 4)
 			labelStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 2)
-			labelStr:SetText("|cFFFFFFFF"..(L[taskKey] or taskKey).."|r")
+			local localizedLabel = (pcall(function() return L[taskKey] end) and L[taskKey]) or taskKey
+			labelStr:SetText("|cFFFFFFFF"..localizedLabel.."|r")
 			labelStr:SetJustifyH("CENTER")
 
-			local resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), tasks[taskKey].type)
+			local resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
 			local timerStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			timerStr:SetWidth(COL_LABEL_W - PAD - 4)
 			timerStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 16)
@@ -902,8 +911,16 @@ function AltManager:Quest_Lost(event, name, uid)
 		for k,id in pairs(questsList[type]) do
 			if uid == id then
 				if self:GetStatus(type) == 1 then
-					local weeklyReset = tasks[type].type == "weekly" and GetCharProfile().LastReset and GetCharProfile().LastReset.reset
-					self:SetDone(type, 2, weeklyReset or GetQuestResetTime() or SecondsUntilWeeklyResetFallback())
+					local targetReset
+					if tasks[type].type == "daily" then
+						targetReset = GetQuestResetTime() or (GetServerUnixTime() + SecondsUntilDailyReset())
+					elseif tasks[type].type == "fiveday" then
+						targetReset = GetServerUnixTime() + SecondsUntilFiveDayReset()
+					else
+						local weeklyReset = GetCharProfile().LastReset and GetCharProfile().LastReset.reset
+						targetReset = weeklyReset or (GetServerUnixTime() + SecondsUntilWeeklyResetFallback())
+					end
+					self:SetDone(type, 2, targetReset)
 				end
 			end
 		end
@@ -1053,16 +1070,15 @@ function AltManager:LoadSV()
 							if not dbReset or dbReset == 0 then
 								if tasks[k2] and tasks[k2].type == "daily" then
 									dbReset = serverTime + SecondsUntilDailyReset()
-								elseif tasks[k2] and tasks[k2].type == "ony" then
-									local anchorTime = 1779225600
-									dbReset = serverTime + (ONY_RESET_CYCLE - ((serverTime - anchorTime) % ONY_RESET_CYCLE))
-								else
-									dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
-									if not dbReset or dbReset == 0 then
-										dbReset = serverTime + SecondsUntilWeeklyResetFallback()
-									end
+							elseif tasks[k2] and tasks[k2].type == "fiveday" then
+								dbReset = serverTime + SecondsUntilFiveDayReset()
+							else
+								dbReset = self.db.global[k1].LastReset and self.db.global[k1].LastReset.reset
+								if not dbReset or dbReset == 0 then
+									dbReset = serverTime + SecondsUntilWeeklyResetFallback()
 								end
 							end
+						end
 							
 							if dbReset and dbReset < serverTime then 
 								if k1 == me then
@@ -1093,7 +1109,7 @@ function AltManager:CreateMinimapIcon()
 		tt:AddLine(" ")
 
 		local function ResetStr(taskKey)
-			return FormatTimeUntil(GetResetForAlt(me, taskKey), tasks[taskKey].type)
+			return FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
 		end
 
 		tt:AddLine("|cFFFFFFFF"..(L.RaidIDs or "Raid Lockouts").."|r")
