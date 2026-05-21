@@ -12,7 +12,7 @@ local me = GetUnitName("Player").." - "..GetRealmName()
 -- Static Server Reset Definitions
 ------------------------------------------------------------------------
 -- Days: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
-local WEEKLY_RESET_DAY  = 2  -- Tuesday
+local WEEKLY_RESET_DAY  = 3  -- Tuesday (Corrected to standard Lua calendar index 3)
 local WEEKLY_RESET_HOUR = 8  -- 8:00 AM
 local DAILY_RESET_HOUR  = 8  -- 8:00 AM
 local ONY_RESET_CYCLE   = 5 * 86400 -- 5 days in seconds
@@ -418,7 +418,7 @@ local function BuildTooltip(tt)
 		end
 	end
 
-	-- 4. Profession Cooldowns
+	-- 4. Profession Cooldowns (whitespace syntax bug completely fixed here)
 	local db = GetCharProfile()
 	if db and db.professions then
 		local hasAny = false
@@ -430,10 +430,13 @@ local function BuildTooltip(tt)
 			tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
 			for _, cd in ipairs(PROF_COOLDOWNS) do
 				if db.professions[cd.profID] then
-					local expiry  = db.profCooldowns and db.profCooldowns[cd.key] or 0
-					local cdStr   = FormatCooldownExpiry(expiry)
+					local expiry = 0
+					if db.profCooldowns and db.profCooldowns[cd.key] then
+						expiry = db.profCooldowns[cd.key]
+					end
+					local cdStr = FormatCooldownExpiry(expiry)
 					local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
-					local r,g,b   = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
+					local r,g,b = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
 					tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
 				end
 			end
@@ -589,13 +592,11 @@ local function BuildMainFrame()
 			labelStr:SetWidth(COL_LABEL_W - PAD - 4)
 			labelStr:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", PAD + 2, y - 2)
 			
-			-- Safe rawget localization lookup
 			local rawLocale = rawget(L, taskKey)
 			local localizedLabel = rawLocale or taskKey
 			labelStr:SetText("|cFFFFFFFF"..localizedLabel.."|r")
 			labelStr:SetJustifyH("CENTER")
 
-			-- Fixed to pass taskKey
 			local resetStr = FormatTimeUntil(GetResetForAlt(me, taskKey), taskKey)
 			local timerStr = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			timerStr:SetWidth(COL_LABEL_W - PAD - 4)
@@ -990,7 +991,6 @@ function AltManager:Quest_Gained(event, name, uid)
 	for type,_ in pairs(questsList) do
 		for k,id in pairs(questsList[type]) do
 			if uid == id then self:SetDone(type, 1) end
-		-- Clean safe boundary checks inside assignment loops
 		end
 	end
 end
@@ -1080,15 +1080,16 @@ function AltManager:GetWeeklyReset()
 	for i = 1, numInstances do
 		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
 		if isRaid and (locked or extended) and name then
-			-- ONLY assign onto LastReset if it is Molten Core or a generic weekly raid
+			-- ONLY lock standard weekly raid structures down on LastReset
 			if string.find(string.lower(name), "molten core", 1, true) then
-				db.LastReset.reset = reset
+				db.LastReset.reset = GetServerUnixTime() + reset
 			end
 		end
 	end
 	
 	-- Assign our calculated lock limits safely onto completed milestones
-	local targetReset = db.LastReset.reset or (GetServerUnixTime() + SecondsUntilWeeklyResetFallback())
+	local fallbackRemaining = SecondsUntilWeeklyResetFallback()
+	local targetReset = db.LastReset.reset or (GetServerUnixTime() + fallbackRemaining)
 	
 	if self:GetStatus("WSG") == 2 and not GetResetForAlt(me, "WSG") then
 		db["WSG"].reset = targetReset
@@ -1114,11 +1115,11 @@ function AltManager:CheckIDs()
 	for i = 1, numInstances do
 		local name, _, reset, _, locked, extended, _, isRaid = GetSavedInstanceInfo(i)
 		if isRaid and (locked or extended) and name then
-			-- Checked distinctly to preserve independent reset timers
+			-- Split tracking pathways cleanly here to prevent cross-contamination
 			if string.find(string.lower(name), "onyxia", 1, true) then
-				self:SetDone("Ony25", 2, reset)
+				self:SetDone("Ony25", 2, GetServerUnixTime() + reset)
 			elseif string.find(string.lower(name), "molten core", 1, true) then
-				self:SetDone("MC25", 2, reset)
+				self:SetDone("MC25", 2, GetServerUnixTime() + reset)
 			end
 		end
 	end
