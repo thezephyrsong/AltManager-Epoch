@@ -455,7 +455,6 @@ local function BuildTooltip(tt)
 			end
 		end
 	end
-end
 
 ------------------------------------------------------------------------
 -- Main Interface UI
