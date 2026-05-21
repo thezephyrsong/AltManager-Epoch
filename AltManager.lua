@@ -418,18 +418,31 @@ local function BuildTooltip(tt)
 		end
 	end
 
-	-- 4. Profession Cooldowns (whitespace syntax bug completely fixed here)
+	-- 4. Profession Cooldowns (Now strictly obeying skill level & character level requirements)
 	local db = GetCharProfile()
-	if db and db.professions then
-		local hasAny = false
-		for _, cd in ipairs(PROF_COOLDOWNS) do
-			if db.professions[cd.profID] then hasAny = true break end
-		end
-		if hasAny then
-			tt:AddLine(" ")
-			tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
-			for _, cd in ipairs(PROF_COOLDOWNS) do
-				if db.professions[cd.profID] then
+		if db and db.professions then
+			-- Fetch filtered items that the current character actually qualifies for
+			local eligible3d = GetProfCooldownsForAlt(me, "3day")
+			local eligible7d = GetProfCooldownsForAlt(me, "7day")
+		
+			if #eligible3d > 0 or #eligible7d > 0 then
+				tt:AddLine(" ")
+				tt:AddLine("|cFFFFFFFFProfession Cooldowns|r")
+			
+			-- Process 3-Day Cooldowns
+				for _, cd in ipairs(eligible3d) do
+					local expiry = 0
+					if db.profCooldowns and db.profCooldowns[cd.key] then
+						expiry = db.profCooldowns[cd.key]
+					end
+					local cdStr = FormatCooldownExpiry(expiry)
+					local isReady = (not expiry or expiry == 0 or expiry <= serverTime)
+					local r,g,b = isReady and 0.2,0.8,0.2 or 1.0,0.5,0.5
+					tt:AddDoubleLine(cd.label.." ("..cd.cdSlot..")", cdStr, 1,1,1, r,g,b)
+				end
+			
+			-- Process 7-Day Cooldowns
+				for _, cd in ipairs(eligible7d) do
 					local expiry = 0
 					if db.profCooldowns and db.profCooldowns[cd.key] then
 						expiry = db.profCooldowns[cd.key]
