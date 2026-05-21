@@ -23,7 +23,7 @@ local tasks = {
 	MC25  = { done = -1, type = "raid",    isDaily = false, levelRequire = 60 }, -- Standard weekly lockout
 	WSG   = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
 	Gilli = { done = -1, type = "weekly",  isDaily = false, levelRequire = 60 }, -- Weekly quest
-	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 10 }, -- 24-Hour Daily Win
+	BG    = { done = -1, type = "daily",   isDaily = true,  levelRequire = 60 }, -- 24-Hour Daily Win
 	Sili  = { done = -1, type = "daily",   isDaily = true,  levelRequire = 54 }, -- 24-Hour Daily Quest
 }
 
@@ -919,36 +919,6 @@ function AltManager:OnCooldownUpdate()
 	self:SaveProfCooldowns()
 end
 
-------------------------------------------------------------------------
--- Simplified Project Epoch Battleground Tracking Parser
-------------------------------------------------------------------------
-function AltManager:CheckBattlegroundWin()
-	if self:GetStatus("BG") == 2 then return end
-
-	for i = 1, MAX_BATTLEFIELD_QUEUES do
-		local status, _, _, _, _, _, _, _, _, _, _, _, winner = GetBattlefieldStatus(i)
-		if status == "active" then
-			local playerFaction = OurFaction or GetGuildFactionGroup or UnitFactionGroup("player")
-			local winnerFaction = GetBattlefieldWinner()
-			
-			if winnerFaction ~= nil then
-				local isWin = false
-				if playerFaction == "Alliance" and winnerFaction == 0 then
-					isWin = true
-				elseif playerFaction == "Horde" and winnerFaction == 1 then
-					isWin = true
-				end
-				
-				if isWin then
-					local inBossZone = WORLD_BOSS_ZONES[GetZoneText()]
-					if not inBossZone then
-						self:SetDone("BG", 2, GetQuestResetTime())
-					end
-				end
-			end
-		end
-	end
-end
 
 ------------------------------------------------------------------------
 -- Slash Commands
@@ -1059,7 +1029,7 @@ end
 function AltManager:CheckLevel()
 	local lv = UnitLevel("player")
 	
-	if lv < 10 then 
+	if lv < 60 then 
 		self:SetDone("BG", -1) 
 	elseif self:GetStatus("BG") == -1 then
 		self:SetDone("BG", 0)
