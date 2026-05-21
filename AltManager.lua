@@ -68,8 +68,8 @@ end
 
 local function SecondsUntilFiveDayReset()
 	local serverTime = GetServerUnixTime()
-	-- Fixed Anchor: Tuesday, May 19, 2026 at 8:00 AM server time (Unix: 1779225600)
-	local anchorTime = 1779225600 
+	-- Adjusted Anchor to shift the cycle back by exactly 1 day (Unix: 1779139200)
+	local anchorTime = 1779139200 
 	
 	local timePassed = serverTime - anchorTime
 	local remainder = timePassed % ONY_RESET_CYCLE
