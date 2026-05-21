@@ -1290,7 +1290,7 @@ EpochBGTracker:SetScript("OnEvent", function(self, event)
                 if AltManager and AltManager.db and AltManager.db.global and AltManager.db.global.chars then
                     if AltManager.db.global.chars[me] then
                         -- Update the native daily BG tracking key directly
-                        AltManager.db.global.chars[me].BGDaily = true
+                        AltManager.db.global.chars[me].BG = true
                         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[AltManager]: Daily BG Win tracked (+ " .. diff .. " Conquest Points)!|r")
                         
                         -- Safely trigger a refresh of the UI display window if it's open
