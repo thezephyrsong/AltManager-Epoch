@@ -1256,7 +1256,7 @@ PVPFrameInjector:RegisterEvent("PLAYER_LOGIN")
 
 PVPFrameInjector:SetScript("OnEvent", function(self, event)
     -- Target the true 3.3.5a PvP frame container
-    local parentFrame = PVPFrameHonor or PVPFrame
+    local parentFrame = PVPBattlegroundFrame or PVPFrame
     if not parentFrame then return end
 
     -- Create a standardized template checkbutton parented to the PvP Frame
@@ -1304,7 +1304,7 @@ end)
 local CorePVPScraperHook = CreateFrame("Frame")
 CorePVPScraperHook:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
 CorePVPScraperHook:SetScript("OnEvent", function()
-    local pane = PVPFrameHonor or PVPFrame
+    local pane = PVPBattlegroundFrame or PVPFrame
     if AltManagerPVPTabCheckbox and pane and pane:IsShown() and AltManager and AltManager.GetStatus then
         AltManagerPVPTabCheckbox:SetChecked(AltManager:GetStatus("BG") == 2)
     end
