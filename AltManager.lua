@@ -1264,7 +1264,7 @@ PVPFrameInjector:SetScript("OnEvent", function(self, event)
     cb:SetSize(24, 24)
     
     -- Cleanly anchor it to the top right section of the PvP info display pane
-    cb:SetPoint("TOPRIGHT", parentFrame, "TOPRIGHT", -20, -12)
+    cb:SetPoint("TOPRIGHT", parentFrame, "TOPRIGHT", -40, -40)
 
     -- Configure the descriptive label string next to the box
     local text = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
