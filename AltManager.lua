@@ -1224,55 +1224,84 @@ function AltManager:Options()
 	}
 end
 
-local EpochBGTracker = CreateFrame("Frame")
-EpochBGTracker:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
-EpochBGTracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- ====================================================================
+-- CHAT-EVENT LIVE BG TRACKER (COMPLETELY IMMUNE TO CACHING BUGS)
+-- ====================================================================
+local EpochChatTracker = CreateFrame("Frame")
+EpochChatTracker:RegisterEvent("CHAT_MSG_CURRENCY")
+EpochChatTracker:RegisterEvent("CHAT_MSG_LOOT")
+EpochChatTracker:RegisterEvent("CHAT_MSG_SYSTEM")
 
-local lastConquestCount = nil
-
-local function GetConquestCount()
-    for i = 1, GetCurrencyListSize() do
-        local _, isHeader, _, _, _, count, _, _, itemID = GetCurrencyListInfo(i)
-        if not isHeader and itemID == 43307 then
-            return count
-        end
-    end
-    return 0
-end
-
-EpochBGTracker:SetScript("OnEvent", function(self, event)
-    local currentCount = GetConquestCount()
-
-    -- Snapshot on loading screen
-    if event == "PLAYER_ENTERING_WORLD" then
-        lastConquestCount = currentCount
-        return
-    end
-
-    -- Check for changes live
-    if event == "CURRENCY_DISPLAY_UPDATE" and lastConquestCount then
-        if currentCount > lastConquestCount then
-            local diff = currentCount - lastConquestCount
+EpochChatTracker:SetScript("OnEvent", function(self, event, message)
+    -- This fires only when a live reward event occurs during gameplay
+    if message and string.find(string.lower(message), "conquest") then
+        if AltManager and AltManager.SetDone then
+            -- Set task state using AltManager's native API (2 = Green/Done)
+            AltManager:SetDone("BG", 2, GetQuestResetTime())
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[AltManager]: Live Conquest reward detected! Daily BG marked as Done.|r")
             
-            -- If you gained 10 or more points at once (Daily BG Reward)
-            if diff >= 10 then
-                local me = GetUnitName("Player").." - "..GetRealmName()
-                if AltManager and AltManager.db and AltManager.db.global and AltManager.db.global.chars then
-                    if AltManager.db.global.chars[me] then
-                        -- Update the native daily BG tracking key directly
-                        AltManager.db.global.chars[me].BG = true
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[AltManager]: Daily BG Win tracked (+ " .. diff .. " Conquest Points)!|r")
-                        
-                        -- Safely trigger a refresh of the UI display window if it's open
-                        if AltManager.UpdateMainFrame then
-                            AltManager:UpdateMainFrame()
-                        elseif AltManager.UpdateWindow then
-                            AltManager:UpdateWindow()
-                        end
-                    end
-                end
+            -- Redraw the UI panel grid layout immediately
+            if AltManager.UpdateMainFrame then
+                AltManager:UpdateMainFrame()
             end
         end
-        lastConquestCount = currentCount
+    end
+end)
+
+-- ====================================================================
+-- BLIZZARD HONOR FRAME UI INJECTION OVERRIDE
+-- ====================================================================
+local HonorFrameInjector = CreateFrame("Frame")
+HonorFrameInjector:RegisterEvent("PLAYER_LOGIN")
+
+HonorFrameInjector:SetScript("OnEvent", function(self, event)
+    if not CharacterHonorFrame then return end
+
+    -- Create a standardized Blizzard template checkbutton parented to the Honor Frame
+    local cb = CreateFrame("CheckButton", "AltManagerHonorTabCheckbox", CharacterHonorFrame, "UICheckButtonTemplate")
+    cb:SetSize(24, 24)
+    -- Positioned cleanly in the top right quadrant of the Honor info panel
+    cb:SetPoint("TOPRIGHT", CharacterHonorFrame, "TOPRIGHT", -25, -38)
+
+    -- Configure the descriptive label string next to the box
+    local text = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    text:SetPoint("RIGHT", cb, "LEFT", -4, 1)
+    text:SetText("Daily BG Done:")
+    cb.text = text
+
+    -- Synchronize the checkbox layout state whenever you open your C -> Honor tab
+    CharacterHonorFrame:HookScript("OnShow", function()
+        if AltManager and AltManager.GetStatus then
+            cb:SetChecked(AltManager:GetStatus("BG") == 2)
+        end
+    end)
+
+    -- Action handler for when a user manually clicks the checkbox toggle
+    cb:SetScript("OnClick", function(self)
+        if not AltManager or not AltManager.SetDone then return end
+        
+        if self:GetChecked() then
+            -- Mark as Completed (State 2)
+            AltManager:SetDone("BG", 2, GetQuestResetTime())
+            print("|cff00ff00[AltManager]: Marked Daily BG as COMPLETED.|r")
+        else
+            -- Reset back to Available (State 0)
+            AltManager:SetDone("BG", 0)
+            print("|cffff0000[AltManager]: Marked Daily BG as INCOMPLETE.|r")
+        end
+
+        -- Refresh the core grid panel overlay immediately if open
+        if AltManager.UpdateMainFrame then
+            AltManager:UpdateMainFrame()
+        end
+    end)
+end)
+
+-- Hook the automated live chat scraper to update this checkbox immediately if your Honor tab is open
+local CoreScraperHook = CreateFrame("Frame")
+CoreScraperHook:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+CoreScraperHook:SetScript("OnEvent", function()
+    if AltManagerHonorTabCheckbox and CharacterHonorFrame:IsShown() and AltManager and AltManager.GetStatus then
+        AltManagerHonorTabCheckbox:SetChecked(AltManager:GetStatus("BG") == 2)
     end
 end)
