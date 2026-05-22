@@ -1249,19 +1249,22 @@ EpochChatTracker:SetScript("OnEvent", function(self, event, message)
 end)
 
 -- ====================================================================
--- BLIZZARD HONOR FRAME UI INJECTION OVERRIDE
+-- WRATH PVP FRAME UI INJECTION OVERRIDE
 -- ====================================================================
-local HonorFrameInjector = CreateFrame("Frame")
-HonorFrameInjector:RegisterEvent("PLAYER_LOGIN")
+local PVPFrameInjector = CreateFrame("Frame")
+PVPFrameInjector:RegisterEvent("PLAYER_LOGIN")
 
-HonorFrameInjector:SetScript("OnEvent", function(self, event)
-    if not CharacterHonorFrame then return end
+PVPFrameInjector:SetScript("OnEvent", function(self, event)
+    -- Target the true 3.3.5a PvP frame container
+    local parentFrame = PVPFrameHonor or PVPFrame
+    if not parentFrame then return end
 
-    -- Create a standardized Blizzard template checkbutton parented to the Honor Frame
-    local cb = CreateFrame("CheckButton", "AltManagerHonorTabCheckbox", CharacterHonorFrame, "UICheckButtonTemplate")
+    -- Create a standardized template checkbutton parented to the PvP Frame
+    local cb = CreateFrame("CheckButton", "AltManagerPVPTabCheckbox", parentFrame, "UICheckButtonTemplate")
     cb:SetSize(24, 24)
-    -- Positioned cleanly in the top right quadrant of the Honor info panel
-    cb:SetPoint("TOPRIGHT", CharacterHonorFrame, "TOPRIGHT", -25, -38)
+    
+    -- Cleanly anchor it to the top right section of the PvP info display pane
+    cb:SetPoint("TOPRIGHT", parentFrame, "TOPRIGHT", -20, -12)
 
     -- Configure the descriptive label string next to the box
     local text = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1269,14 +1272,14 @@ HonorFrameInjector:SetScript("OnEvent", function(self, event)
     text:SetText("Daily BG Done:")
     cb.text = text
 
-    -- Synchronize the checkbox layout state whenever you open your C -> Honor tab
-    CharacterHonorFrame:HookScript("OnShow", function()
+    -- Synchronize the checkbox layout state whenever you open the PvP (H) panel
+    parentFrame:HookScript("OnShow", function()
         if AltManager and AltManager.GetStatus then
             cb:SetChecked(AltManager:GetStatus("BG") == 2)
         end
     end)
 
-    -- Action handler for when a user manually clicks the checkbox toggle
+    -- Action handler for manual clicks
     cb:SetScript("OnClick", function(self)
         if not AltManager or not AltManager.SetDone then return end
         
@@ -1290,18 +1293,19 @@ HonorFrameInjector:SetScript("OnEvent", function(self, event)
             print("|cffff0000[AltManager]: Marked Daily BG as INCOMPLETE.|r")
         end
 
-        -- Refresh the core grid panel overlay immediately if open
+        -- Refresh the master grid immediately
         if AltManager.UpdateMainFrame then
             AltManager:UpdateMainFrame()
         end
     end)
 end)
 
--- Hook the automated live chat scraper to update this checkbox immediately if your Honor tab is open
-local CoreScraperHook = CreateFrame("Frame")
-CoreScraperHook:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
-CoreScraperHook:SetScript("OnEvent", function()
-    if AltManagerHonorTabCheckbox and CharacterHonorFrame:IsShown() and AltManager and AltManager.GetStatus then
-        AltManagerHonorTabCheckbox:SetChecked(AltManager:GetStatus("BG") == 2)
+-- Hook the background monitor to auto-check this box if you open your PvP pane live
+local CorePVPScraperHook = CreateFrame("Frame")
+CorePVPScraperHook:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+CorePVPScraperHook:SetScript("OnEvent", function()
+    local pane = PVPFrameHonor or PVPFrame
+    if AltManagerPVPTabCheckbox and pane and pane:IsShown() and AltManager and AltManager.GetStatus then
+        AltManagerPVPTabCheckbox:SetChecked(AltManager:GetStatus("BG") == 2)
     end
 end)
