@@ -874,7 +874,7 @@ function AltManager:OnEnable()
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN",   "OnCooldownUpdate")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScanQuestLog")
 	
-	self:RegisterEvent("UPDATE_BATTLEFIELD_STATUS", "CheckBattlegroundWin")
+	-- self:RegisterEvent("UPDATE_BATTLEFIELD_STATUS", "CheckBattlegroundWin")
 	
 	self:RegisterEvent("SPELLS_CHANGED", function()
 		AltManager.spellbookLoaded = true
