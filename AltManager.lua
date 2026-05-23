@@ -1309,3 +1309,49 @@ CorePVPScraperHook:SetScript("OnEvent", function()
         AltManagerPVPTabCheckbox:SetChecked(AltManager:GetStatus("BG") == 2)
     end
 end)
+
+-- ====================================================================
+-- SURGICAL FIX: RAW QUEST COMPLETION SCRAPER (BYPASSES STATE GATES)
+-- ====================================================================
+local EpochRawQuestTracker = CreateFrame("Frame")
+EpochRawQuestTracker:RegisterEvent("QUEST_TURNED_IN")
+
+EpochRawQuestTracker:SetScript("OnEvent", function(self, event, questID)
+    if not questID then return end
+    
+    -- Mirror the native ID array configurations
+    local trackerMapping = { 
+        Sili  = { 27390, 27391, 27392, 27393, 27394, 27395 },
+        WSG   = { 27880, 27881, 27882, 27883 }, 
+        Gilli = { 31042, 31043, 31044, 31045 }, 
+    }
+    
+    for taskKey, idList in pairs(trackerMapping) do
+        for _, id in ipairs(idList) do
+            if questID == id then
+                if AltManager and AltManager.SetDone then
+                    -- Calculate the appropriate reset anchor
+                    local targetReset
+                    if taskKey == "Sili" then
+                        targetReset = GetQuestResetTime()
+                    else
+                        -- Weekly reset fallback alignment for WSG/Gilli
+                        local me = GetUnitName("Player").." - "..GetRealmName()
+                        local db = AltManager.db and AltManager.db.global and AltManager.db.global[me]
+                        targetReset = (db and db.LastReset and db.LastReset.reset) or (GetServerUnixTime() + 7 * 86400)
+                    end
+                    
+                    -- Force State 2 (Done) directly, bypassing the old "status == 1" gate
+                    AltManager:SetDone(taskKey, 2, targetReset)
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[AltManager]: " .. taskKey .. " Quest ID " .. questID .. " tracked successfully!|r")
+                    
+                    -- Update display window grid instantly if visible
+                    if AltManager.UpdateMainFrame then
+                        AltManager:UpdateMainFrame()
+                    end
+                end
+                return
+            end
+        end
+    end
+end)
